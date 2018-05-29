@@ -1,0 +1,30 @@
+[package]
+name = "local_cache_proxy"
+version = "0.1.0"
+authors = ["Ian O'Connell <ianoc@stripe.com>"]
+
+[dependencies]
+hyper-proxy = "0.4.1"
+tokio = "0.1"
+tokio-core = "0.1"
+tokio-io = "0.1"
+tokio-service = "0.1"
+futures = "0.1"
+bytes = "0.4"
+hyper = "0.11.27"
+hyperlocal = "0.4"
+lru-disk-cache = "0.2.0"
+clap = "2.31"
+log = "0.4"
+pretty_env_logger = "0.2"
+tempdir = "0.3"
+flate2 = "1.0.1"
+
+
+[lib]
+name = "local_cache_proxy"
+path = "src/lib.rs"
+
+[[bin]]
+name = "proxy"
+path = "src/bin/main.rs"
