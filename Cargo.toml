@@ -11,15 +11,15 @@ tokio-io = "0.1"
 tokio-service = "0.1"
 futures = "0.1"
 bytes = "0.4"
-hyper = "0.11.27"
-hyperlocal = "0.4"
 lru-disk-cache = "0.2.0"
 clap = "2.31"
 log = "0.4"
 pretty_env_logger = "0.2"
 tempdir = "0.3"
-flate2 = "1.0.1"
-
+hyper = {git = "https://github.com/hyperium/hyper.git", rev = "2415ce96e198bafc107c38e53a7bbacc2d361dbf"}
+tokio-uds = {git = "https://github.com/tokio-rs/tokio-uds.git", rev = "60c7cecacd67f3f8bc0345d2d582cec5e36090d9"}
+hyperlocal = {git = "https://github.com/ianoc/hyperlocal.git", rev = "d816d49ab1e893a93d7ab21e88f7b124adb39e08"}
+http = "0.1.5"
 
 [lib]
 name = "local_cache_proxy"

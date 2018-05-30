@@ -1,6 +1,5 @@
 extern crate hyper;
 extern crate hyper_proxy;
-#[macro_use]
 extern crate futures;
 extern crate tokio_core;
 extern crate hyperlocal;
@@ -10,45 +9,18 @@ extern crate local_cache_proxy;
 extern crate pretty_env_logger;
 extern crate tokio;
 
-use hyper::Uri;
-use futures::Future;
-use hyper::Response;
 use hyper::client::Client;
-use hyper::client::HttpConnector;
-use tokio_core::reactor::Core;
 use clap::{App, Arg};
 use std::env;
-use tokio::prelude::*;
-use futures::future::{self, Either};
 
 
 // use std::{thread, time};
 
-use local_cache_proxy::net::HasHttpClient;
 use local_cache_proxy::config::AppConfig;
-use tokio_core::reactor::Remote;
 use local_cache_proxy::net::Downloader;
-use futures::sync::mpsc;
-use std::sync::{Arc, Mutex};
-use hyper::client::Connect;
-
-
-
-struct DefaultClient {
-  core_handle: Remote
-}
-impl HasHttpClient<HttpConnector> for DefaultClient {
-      fn build_http_client(&self) -> Client<HttpConnector, hyper::Body> {
-        // hyper::client::Client::new(&self.core_handle)
-    unimplemented!()
-
-    }
-}
 
 
 fn main() {
-    let core = Core::new().unwrap();
-
     // let proxy = Proxy::new(&core);
 
     // // Connecting to http will trigger regular GETs and POSTs.
@@ -138,16 +110,12 @@ fn main() {
         None => println!("No proxy set"),
     };
 
-    let default_client_builder = DefaultClient {
-      core_handle: core.handle().remote().clone()
-    };
-
-    let downloader = Downloader::new(&cfg, Box::new(default_client_builder)).unwrap();
+    let downloader = Downloader::new(&cfg).unwrap();
 
     // core.run(downloader.fetch_file(
     //     &"http://www.google.com".parse().unwrap()
     // )).unwrap();
     // println!("data: {:?}", cfg);
 
-    local_cache_proxy::net::start_server(cfg, downloader).unwrap();
+    local_cache_proxy::net::start_server(cfg, downloader, Client::new()).unwrap();
 }

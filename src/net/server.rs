@@ -1,6 +1,7 @@
-use hyper::server::service_fn;
-use hyper::header::{ContentType, ContentLength};
-use hyper::server::NewService;
+use hyper::Client;
+use hyper::service::service_fn;
+use hyper::body::Payload;
+// use hyper::service::{service_fn};
 use hyper;
 use futures::Stream;
 use config::AppConfig;
@@ -9,29 +10,30 @@ use std::io;
 use hyper::Error as HyperError;
 use std::result::Result;
 use net::Downloader;
-use hyper::client::Connect;
+use hyper::client::connect::Connect;
 use futures;
-use hyper::{Body, Method, Request, Server, StatusCode};
-use hyper::server::{Http, Response, const_service};
+// use hyper::server::{Http, Response, const_service};
+use hyper::service::NewService;
 use std::fs;
-use hyper::server::Service;
-use futures::future::FutureResult;
-use hyper::server;
+// use hyper::server::Service;
+use hyper::Server;
 use std;
-use futures::Future;
-use tokio;
+use futures::{future, Future};
+use hyper::{Body, Method, Request, Response, StatusCode};
 
 const PHRASE: &'static str = "It's a Unix system. I know this.";
 
 
-fn start_unix_server_impl<S, B>(bind_target: &hyper::Uri, s: S) -> Result<(), HyperError>
+fn start_unix_server_impl<S, Bd>(bind_target: &hyper::Uri, s: S) -> Result<(), ServerError>
 where
-    S: NewService<Request = Request, Response = Response<B>, Error = ::hyper::Error>
-        + Send
-        + Sync
-        + 'static,
-    B: Stream<Error = ::hyper::Error> + 'static,
-    B::Item: AsRef<[u8]>,
+    S: Sync,
+    S: NewService<ReqBody = Body, ResBody = Bd> + Send + 'static,
+    S::Error: Into<Box<::std::error::Error + Send + Sync>>,
+    S::Service: Send,
+    S::Error: Into<Box<::std::error::Error + Send + Sync>>,
+    <S as ::hyper::service::NewService>::Future: Send,
+    <S::Service as ::hyper::service::Service>::Future: Send + 'static,
+    Bd: Payload,
 {
     let bind_path = bind_target.authority().unwrap();
     let svr = hyperlocal::server::Http::new().bind(bind_path, s)?;
@@ -40,94 +42,112 @@ where
 }
 
 
-fn start_http_server_impl<S, B>(bind_target: &hyper::Uri, s: S) -> Result<(), HyperError>
+fn start_http_server_impl<S, Bd>(bind_target: &hyper::Uri, s: S) -> Result<(), ServerError>
 where
-    S: NewService<Request = Request, Response = Response<B>, Error = ::hyper::Error>
-        + Send
-        + Sync
-        + 'static,
-    B: Stream<Error = ::hyper::Error> + 'static,
-    B::Item: AsRef<[u8]>,
+    S: NewService<ReqBody = Body, ResBody = Bd> + Send + 'static,
+    S::Error: Into<Box<::std::error::Error + Send + Sync>>,
+    S::Service: Send,
+    S::Error: Into<Box<::std::error::Error + Send + Sync>>,
+    <S as ::hyper::service::NewService>::Future: Send,
+    <S::Service as ::hyper::service::Service>::Future: Send + 'static,
+    Bd: Payload,
 {
-
 
     let socket_addr = format!("127.0.0.1:{}", bind_target.port().unwrap())
         .parse()
         .unwrap();
 
-    let server = Http::new()
-        .sleep_on_errors(true)
-        .bind(&socket_addr, s)
-        .unwrap();
-    println!(
-        "Listening on http://{} with 1 thread.",
-        server.local_addr().unwrap()
-    );
-    server.run()?;
+
+    let server = Server::bind(&socket_addr).serve(s).map_err(|e| {
+        eprintln!("server error: {}", e)
+    });
+
+    hyper::rt::run(server);
 
     Ok(())
-
-
 }
 
-#[derive(Clone)]
-struct Srv<C> {
-    downloader: Downloader<C>
+
+#[derive(Debug)]
+pub enum ServerError {
+    IoError(std::io::Error),
+    HyperError(::hyper::Error),
+    BindError(::hyperlocal::server::BindError),
 }
-impl<C: Connect> Srv<C> {
-    fn new(downloader: Downloader<C>) -> Self {
-        Srv {
-            downloader: downloader
-        }
+
+impl From<std::io::Error> for ServerError {
+    fn from(error: std::io::Error) -> Self {
+        ServerError::IoError(error)
     }
 }
 
-impl<C: Connect> NewService for Srv<C> {
-    type Request = server::Request;
-    type Response = server::Response;
-    type Error = hyper::error::Error;
-    type Instance = Srv<C>;
-
-    fn new_service(&self) -> Result<Self::Instance, std::io::Error> {
-        Ok(Srv {
-            downloader: self.downloader.clone()
-        })
+impl From<::hyper::Error> for ServerError {
+    fn from(error: ::hyper::Error) -> Self {
+        ServerError::HyperError(error)
     }
-
-}
-impl<C: Connect> Service for Srv<C> {
-    type Request = Request;
-    type Response = Response;
-    type Error = hyper::Error;
-    type Future = Box<Future<Item = Response, Error=hyper::Error>>;
-
-    fn call(&self, req: Request) -> Self::Future {
-        let downloaded = self.downloader.fetch_file(req.uri());
-
-        // tokio::spawn(downloaded);
-
-        Box::new(downloaded.and_then (move |_| {
-        futures::future::ok(match (req.method(), req.path()) {
-            (&hyper::Method::Get, "/") => {
-                Response::new()
-                    .with_header(ContentLength(PHRASE.len() as u64))
-                    .with_body(PHRASE)
-            },
-            _ => {
-                Response::new()
-                    .with_status(StatusCode::NotFound)
-            }
-        })
-    }).or_else (|_| {
-        futures::future::ok(Response::new().with_status(StatusCode::InternalServerError))
-    }))
-    }
-
 }
 
-pub fn start_server<C>(_config: AppConfig, downloader: Downloader<C>) -> Result<(), io::Error>
-where C: Connect {
-    let srv = Srv::new(downloader);
+impl From<::hyperlocal::server::BindError> for ServerError {
+    fn from(error: ::hyperlocal::server::BindError) -> Self {
+        ServerError::BindError(error)
+    }
+}
+
+type ResponseFuture = Box<Future<Item = Response<Body>, Error = io::Error> + Send>;
+
+
+fn response_examples<C: Connect + 'static>(
+    req: Request<Body>,
+    downloader: &Downloader,
+    http_client: &Client<C>,
+) -> ResponseFuture {
+    let downloaded = downloader.fetch_file(http_client, req.uri());
+    let req_uri_string = req.uri().clone();
+    Box::new(
+        downloaded
+            .and_then(move |_| {
+                futures::future::ok(match (req.method(), req.uri().path()) {
+                    (&Method::GET, "/") => {
+                        Response::new(PHRASE.into())
+                        // .with_header(ContentLength(PHRASE.len() as u64))
+                    }
+                    _ => {
+                        let mut res = Response::new(Body::empty());
+                        *res.status_mut() = StatusCode::NOT_FOUND;
+                        res
+                    }
+                })
+            })
+            .or_else(move |o| {
+                warn!("Error: {:?}", o);
+                futures::future::ok({
+                    let mut res = Response::new(
+                        format!("Requested uri: {:?}\n{:?}", req_uri_string, o).into(),
+                    );
+                    *res.status_mut() = StatusCode::INTERNAL_SERVER_ERROR;
+                    res
+                })
+            }),
+    )
+}
+
+
+pub fn start_server<C: Connect + 'static>(
+    _config: AppConfig,
+    downloader: Downloader,
+    http_client: Client<C>,
+) -> Result<(), io::Error>
+where
+    C: Connect,
+{
+    let new_service = move || {
+        // Move a clone of `client` into the `service_fn`.
+        let downloader = downloader.clone();
+        let http_client = http_client.clone();
+        service_fn(move |req| response_examples(req, &downloader, &http_client))
+    };
+
+
     match _config.bind_target.scheme() {
         Some("unix") => {
             debug!(
@@ -140,7 +160,7 @@ where C: Connect {
                 "Going to bind/start server on unix socket for: {}",
                 _config.bind_target
             );
-            start_unix_server_impl(&_config.bind_target, srv)
+            start_unix_server_impl(&_config.bind_target, new_service)
                 .map_err(|e| {
                     io::Error::new(
                         io::ErrorKind::Other,
@@ -153,7 +173,7 @@ where C: Connect {
                 "Going to bind/start server on http path for: 127.0.0.1:{}",
                 _config.bind_target.port().unwrap()
             );
-            start_http_server_impl(&_config.bind_target, srv)
+            start_http_server_impl(&_config.bind_target, new_service)
                 .map_err(|e| {
                     io::Error::new(
                         io::ErrorKind::Other,

@@ -11,8 +11,8 @@ extern crate hyperlocal;
 extern crate lru_disk_cache;
 extern crate clap;
 extern crate pretty_env_logger;
-extern crate flate2;
 extern crate tokio;
+extern crate http;
 
 #[macro_use]
 extern crate log;
