@@ -12,6 +12,8 @@ extern crate tokio;
 use hyper::client::Client;
 use clap::{App, Arg};
 use std::env;
+#[macro_use]
+extern crate log;
 
 
 // use std::{thread, time};
@@ -48,6 +50,15 @@ fn main() {
             "Handles managing a local disk cache while forwarding cache misses externally",
         )
         .author("Ian O Connell <ianoc@ianoc.net>")
+        .arg(
+            Arg::with_name("upstream")
+                .short("u")
+                .long("upstream-uri")
+                .value_name("UPSTREAM_URI")
+                .required(true)
+                .help("Upstream URI to use after any proxies, http://...")
+                .takes_value(true),
+        )
         .arg(
             Arg::with_name("proxy")
                 .short("p")
@@ -86,11 +97,17 @@ fn main() {
 
     let cfg = AppConfig {
         proxy: proxy.map(|e| e.to_string()),
+        upstream: matches
+            .value_of("upstream")
+            .expect("Should never fail, expecting to see upstream arg")
+            .parse()
+            .expect("Failed to parse URI for upstream"),
         bind_target: matches
             .value_of("bind_target")
             .unwrap_or("http://localhost:10487")
             .parse()
             .unwrap(),
+
         cache_folder_size: matches
             .value_of("cache_folder_size")
             .unwrap_or("32212254720")
@@ -104,6 +121,9 @@ fn main() {
             ))
             .to_string(),
     };
+
+    info!("setting up bazel cache folder in : {:?}", cfg.cache_folder);
+    info!("Cache folder size in : {:?}", cfg.cache_folder_size);
 
     match proxy {
         Some(x) => println!("Proxy set to : {}", x),

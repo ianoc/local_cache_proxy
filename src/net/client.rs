@@ -71,6 +71,7 @@ impl Downloader {
         http_client: &Client<C>,
         uri: &Uri,
     ) -> Box<Future<Item = Option<String>, Error = String> + Send> {
+
         let req = Request::get(uri.clone()).body(Body::empty()).unwrap();
         let tmp_download_root = &self.tmp_download_root;
         let file_name = match uri.path() {
@@ -82,7 +83,7 @@ impl Downloader {
             file_name.clone(),
         );
 
-        info!("Filepath: {:?}", file_path);
+        info!("Tmp download file f=path: {:?}", file_path);
 
         let http_response = http_client.request(req);
 
@@ -92,14 +93,12 @@ impl Downloader {
         Box::new(
             http_response
                 .and_then(move |res| {
-                    // Content-Length: 19321
                     println!("{:?}", res.headers().get(CONTENT_LENGTH));
                     let mut file = fs::File::create(&file_path).unwrap();
 
 
                     res.into_body()
                         .for_each(move |chunk| {
-                            // info! ("icecat_fetch] " (url) ": " (written / 1024 / 1024) " MiB.");
 
                             file.write_all(&chunk).map_err(|e| {
                                 panic!("example expects stdout is open, error={}", e)
@@ -107,7 +106,12 @@ impl Downloader {
                             //.map_err(From::from)
                         })
                         .map(move |_e| {
-                            warn!("{:?} -- file_path: {:?}", _e, file_path);
+                            warn!(
+                                "{:?} -- file_path: {:?}, file_name: {:?}",
+                                _e,
+                                file_path,
+                                file_name
+                            );
                             {
                                 let mut lru_cache = lru_cache_copy.lock().unwrap();
                                 lru_cache.insert_file(&file_name, file_path).unwrap();

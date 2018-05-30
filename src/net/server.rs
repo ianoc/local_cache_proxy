@@ -18,8 +18,13 @@ use std::fs;
 // use hyper::server::Service;
 use hyper::Server;
 use std;
+use hyper::Uri as HyperUri;
+use http::uri::Parts;
 use futures::{future, Future};
 use hyper::{Body, Method, Request, Response, StatusCode};
+
+use std::path::Path;
+
 
 const PHRASE: &'static str = "It's a Unix system. I know this.";
 
@@ -100,23 +105,49 @@ fn response_examples<C: Connect + 'static>(
     req: Request<Body>,
     downloader: &Downloader,
     http_client: &Client<C>,
+    config: &AppConfig,
 ) -> ResponseFuture {
-    let downloaded = downloader.fetch_file(http_client, req.uri());
-    let req_uri_string = req.uri().clone();
+
+
+    let mut parts = Parts::from(config.upstream());
+    parts.path_and_query = match req.uri().path_and_query() {
+        Some(path_and_query_ref) => Some(path_and_query_ref.clone()),
+        None => None,
+    };
+    let query_uri = HyperUri::from_parts(parts).unwrap();
+
+    let downloaded = downloader.fetch_file(http_client, &query_uri);
+    let req_uri_string = query_uri.clone();
+    let cache_folder = config.cache_folder.clone();
     Box::new(
         downloaded
-            .and_then(move |_| {
-                futures::future::ok(match (req.method(), req.uri().path()) {
-                    (&Method::GET, "/") => {
-                        Response::new(PHRASE.into())
-                        // .with_header(ContentLength(PHRASE.len() as u64))
+            .and_then(move |file_path| {
+
+                match file_path {
+                    Some(file_name) => {
+                        let data_source_path = Path::new(&cache_folder).join(&file_name);
+                        info!("data_source_path: {:?}", data_source_path);
+
+                        futures::future::ok(match (req.method(), req.uri().path()) {
+                            (&Method::GET, "/") => {
+                                Response::new(PHRASE.into())
+                                // .with_header(ContentLength(PHRASE.len() as u64))
+                            }
+                            _ => {
+                                let mut res = Response::new(Body::empty());
+                                *res.status_mut() = StatusCode::NOT_FOUND;
+                                res
+                            }
+                        })
+
                     }
-                    _ => {
+                    None => {
+                        // We decided not to download the file, so 404 it!
                         let mut res = Response::new(Body::empty());
                         *res.status_mut() = StatusCode::NOT_FOUND;
-                        res
+                        futures::future::ok(res)
                     }
-                })
+                }
             })
             .or_else(move |o| {
                 warn!("Error: {:?}", o);
@@ -140,11 +171,17 @@ pub fn start_server<C: Connect + 'static>(
 where
     C: Connect,
 {
+
+    let cfg = _config.clone();
     let new_service = move || {
         // Move a clone of `client` into the `service_fn`.
         let downloader = downloader.clone();
         let http_client = http_client.clone();
-        service_fn(move |req| response_examples(req, &downloader, &http_client))
+        let config = cfg.clone();
+
+        service_fn(move |req| {
+            response_examples(req, &downloader, &http_client, &config)
+        })
     };
 
 
