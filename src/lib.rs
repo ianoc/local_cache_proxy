@@ -13,6 +13,7 @@ extern crate clap;
 extern crate pretty_env_logger;
 extern crate tokio;
 extern crate http;
+extern crate bytes;
 
 #[macro_use]
 extern crate log;

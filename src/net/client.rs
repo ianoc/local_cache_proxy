@@ -70,15 +70,14 @@ impl Downloader {
         self: &Self,
         http_client: &Client<C>,
         uri: &Uri,
+        file_name: &String,
     ) -> Box<Future<Item = Option<String>, Error = String> + Send> {
+
+        info!("Querying for uri: {:?}", uri);
 
         let req = Request::get(uri.clone()).body(Body::empty()).unwrap();
         let tmp_download_root = &self.tmp_download_root;
-        let file_name = match uri.path() {
-            "/" => "index.html".to_string(),
-            o => o.trim_matches('/').replace("/", "__"),
-        };
-
+        let file_name = file_name.clone();
         let file_path = tmp_download_root.lock().unwrap().path().join(
             file_name.clone(),
         );
