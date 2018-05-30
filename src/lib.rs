@@ -12,9 +12,10 @@ extern crate lru_disk_cache;
 extern crate clap;
 extern crate pretty_env_logger;
 extern crate flate2;
+extern crate tokio;
 
-
-#[macro_use] extern crate log;
+#[macro_use]
+extern crate log;
 
 pub mod config;
 

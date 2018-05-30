@@ -1,11 +1,9 @@
 
-use hyper::client::FutureResponse;
-use hyper::Error;
+use hyper::header::ContentLength;
 use hyper::client::Connect;
 use futures::{Future, Stream};
 use hyper::client::Client;
 use tempdir::TempDir;
-use std::io;
 use lru_disk_cache::LruDiskCache;
 use std::sync::{Arc, Mutex};
 use std::fmt;
@@ -13,15 +11,20 @@ use config::AppConfig;
 use std::error::Error as StdError;
 use hyper::Uri;
 use std::fs;
-use flate2::read::GzDecoder;
-use hyper::{Request, Response};
+use hyper::Request;
 use hyper::Method;
 use hyper;
+use std::io::Write;
+
+pub trait HasHttpClient<C> where C: Connect {
+    fn build_http_client(&self) -> Client<C, hyper::Body>;
+}
+
 
 pub struct Downloader<C> {
-  pub tmp_download_root: Option<TempDir>,
-  pub lru_cache: Arc<Mutex<LruDiskCache>>,
-  pub http_client: Arc<Mutex<C>>
+    pub tmp_download_root: Arc<Mutex<TempDir>>,
+    pub lru_cache: Arc<Mutex<LruDiskCache>>,
+    pub http_client_builder: Arc<Mutex<Box<HasHttpClient<C> + Send + Sync + 'static>>>,
 }
 
 impl<C> fmt::Debug for Downloader<C> {
@@ -30,87 +33,92 @@ impl<C> fmt::Debug for Downloader<C> {
     }
 }
 
-impl<C> Drop for Downloader<C> {
-    fn drop(&mut self) {
-        if let Some(downloader) = self.tmp_download_root.take() {
-            // We are going to do this on exit, if we can't clean up ignore it.
-            downloader.close().unwrap_or_default();
+impl<C> Clone for Downloader<C> {
+    fn clone(&self) -> Self {
+        Downloader {
+            tmp_download_root: Arc::clone(&self.tmp_download_root),
+            lru_cache: Arc::clone(&self.lru_cache),
+            http_client_builder: Arc::clone(&self.http_client_builder)
         }
     }
 }
 
 
-impl<C, B> Downloader<Client<C,B>>
-where C: Connect,
-      B: Stream<Error=hyper::Error> + 'static,
-      B::Item: AsRef<[u8]>,
-      {
 
-      /// Create a new, empty, instance of `Shared`.
-    pub fn new(app_config: AppConfig, http_client: Client<C, B>) -> Result<Self, Box<StdError>> {
+impl<C> Downloader<C>
+where
+    C: Connect,
+{
+    // type Response = Response;
+    // type Future = Box<Future<Item = Self::Response, Error = String>>;
+
+
+    /// Create a new, empty, instance of `Shared`.
+    pub fn new(
+        app_config: &AppConfig,
+        http_client_builder: Box<HasHttpClient<C> + Send + Sync + 'static>,
+    ) -> Result<Self, Box<StdError>> {
         let dir = TempDir::new("local_cache_proxy")?;
-    let _file_path = dir.path().join("foo.txt");
-    let cache = LruDiskCache::new(app_config.cache_folder, 1)?;
+        let cache = LruDiskCache::new(
+            app_config.cache_folder.clone(),
+            app_config.cache_folder_size,
+        )?;
 
-    Ok(Downloader {
-        tmp_download_root: Some(dir),
-        lru_cache: Arc::new(Mutex::new(cache)),
-        http_client: Arc::new(Mutex::new(http_client))
-    })
+        Ok(Downloader {
+            tmp_download_root: Arc::new(Mutex::new(dir)),
+            lru_cache: Arc::new(Mutex::new(cache)),
+            http_client_builder: Arc::new(Mutex::new(http_client_builder)),
+        })
 
     }
 
+    pub fn fetch_file(
+        self: &Self,
+        uri: &Uri,
+    ) -> Box<Future<Item = Option<String>, Error = String>> {
+        let req = Request::new(Method::Get, uri.clone());
+        let tmp_download_root = &self.tmp_download_root;
+        let file_name = match uri.path() {
+            "/" => "index.html".to_string(),
+            o => o.trim_matches('/').replace("/", "__"),
+        };
 
-    // // Connecting to http will trigger regular GETs and POSTs.
-    // // We need to manually append the relevant headers to the request
-    // let uri: Uri = "http://asdfasdfsda/ianoc/16233".parse().unwrap();
-    // let req = Request::new(Method::Get, uri.clone());
+        let file_path = tmp_download_root.lock().unwrap().path().join(file_name.clone());
 
-    // let fut_http = proxy.run(req)
-    //     .and_then(|res| res.body().concat2())
-    //     .map(move |body: Chunk| ::std::str::from_utf8(&body).unwrap().to_string());
+        info!("Filepath: {:?}", file_path);
+        let http_client = self.http_client_builder.lock().unwrap().build_http_client();
 
-    // let _http_res = core.run(fut_http).unwrap();
+        let http_response = http_client.request(req);
 
-
-    pub fn fetch_file(downloader: Self, uri: & Uri, _download_path: &str) -> FutureResponse {
-    //         let req = Request::new(Method::Get, uri.clone());
-    //         let tmp_download_root = &downloader.tmp_download_root.as_ref().unwrap();
-    //     let file_path = tmp_download_root.path().join(uri.path().replace("/", "__"));
-
-    //         let http_client = downloader.http_client.lock().unwrap();
-    //         http_client.request(req)
-    //             .and_then(|res|{
+        let lru_cache_copy = Arc::clone(&self.lru_cache);
 
 
+        Box::new(
+            http_response
+                .and_then(move |res| {
+                    // Content-Length: 19321
+                    println!("{:?}", res.headers().get::<ContentLength>());
+                    let mut file = fs::File::create(&file_path).unwrap();
 
-    //         let mut file = fs::File::create(&file_path)?;
-    //         let mut deflate = GzDecoder::new(response);
 
-    // })
-    //         let path = uri.path();
-    //         let file_path = tmp_download_root.path().join(path.replace("/", "__"));
+                    res.body()
+                        .for_each(move |chunk| {
+                            // info! ("icecat_fetch] " (url) ": " (written / 1024 / 1024) " MiB.");
 
-    //         let mut file = fs::File::create(&file_path)?;
-    //         let mut deflate = GzDecoder::new(response);
-    //         });
+                            file.write_all(&chunk).map_err(From::from)
+                        })
+                        .map(move |_e| {
+                            warn!("{:?} -- file_path: {:?}", _e, file_path);
+                            {
+                                let mut lru_cache = lru_cache_copy.lock().unwrap();
+                                lru_cache.insert_file(&file_name, file_path).unwrap();
+                            }
+                            Some(file_name)
+                        })
 
-    //     let mut buf = [0; 128 * 1024];
-    //     let mut written = 0;
-    //     loop {
-    //         status_line! ("icecat_fetch] " (url) ": " (written / 1024 / 1024) " MiB.");
-    //         let len = match deflate.read(&mut buf) {
-    //             Ok(0) => break,  // EOF.
-    //             Ok(len) => len,
-    //             Err(ref err) if err.kind() == io::ErrorKind::Interrupted => continue,
-    //             Err(err) => return ERR!("{}: Download failed: {}", url, err),
-    //         };
-    //         try_s!(file.write_all(&buf[..len]));
-    //         written += len;
-    //     }
+                })
+                .map_err(|e| e.to_string()),
+        )
 
-    // try_s!(fs::rename(tmp_path, target_path));
-    // status_line_clear();
-    FutureResponse(Box::new(future::err(::Error::Method)))
     }
 }
