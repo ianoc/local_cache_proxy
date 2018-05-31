@@ -8,7 +8,6 @@ use hyper::body::Payload;
 use hyper;
 use futures::Stream;
 use config::AppConfig;
-use hyperlocal;
 use std::io;
 use std::io::{Read, ErrorKind as IoErrorKind};
 use std::io::Error;
@@ -251,7 +250,7 @@ impl Future for BufferedSendStream {
             match self.sender.poll_ready() {
                 Ok(Async::Ready(_)) => (),
                 Ok(Async::NotReady) => return Ok(Async::NotReady),
-                Err(e) => return Ok(Async::Ready(())),
+                Err(_e) => return Ok(Async::Ready(())),
             };
 
             match self.file_chunk_stream.poll()? {

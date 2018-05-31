@@ -18,7 +18,7 @@ pretty_env_logger = "0.2"
 tempdir = "0.3"
 hyper = {git = "https://github.com/ianoc/hyper.git", rev = "5a765529802c7cddb516f170b0a95ae9f008e81e"}
 tokio-uds = {git = "https://github.com/tokio-rs/tokio-uds.git", rev = "60c7cecacd67f3f8bc0345d2d582cec5e36090d9"}
-hyperlocal = {git = "https://github.com/ianoc/hyperlocal.git", rev = "8b4c072270fdee640557f09341a86d8a2525324a"}
+hyperlocal = {git = "https://github.com/ianoc/hyperlocal.git", rev = "501eb165405a6cf942962e1de36453a243638c32"}
 http = "0.1.5"
 
 [lib]

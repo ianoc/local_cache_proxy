@@ -8,6 +8,7 @@ extern crate clap;
 extern crate local_cache_proxy;
 extern crate pretty_env_logger;
 extern crate tokio;
+extern crate tokio_uds;
 
 use hyper::Body;
 use hyper::Client;
@@ -15,36 +16,18 @@ use clap::{App, Arg};
 use std::env;
 #[macro_use]
 extern crate log;
-use hyperlocal::{Uri as HyperlocalUri};
+use hyperlocal::Uri as HyperlocalUri;
 
 // use std::{thread, time};
 
 use local_cache_proxy::config::AppConfig;
 use local_cache_proxy::net::Downloader;
 use local_cache_proxy::net::ProxyConnector;
-use hyperlocal::{UnixConnector};
+use hyperlocal::UnixConnector;
 use hyper::client::HttpConnector;
 
+
 fn main() {
-    // let proxy = Proxy::new(&core);
-
-    // // Connecting to http will trigger regular GETs and POSTs.
-    // // We need to manually append the relevant headers to the request
-    // let uri: Uri = "http://asdfasdfsda/ianoc/16233".parse().unwrap();
-    // let req = Request::new(Method::Get, uri.clone());
-
-    // let fut_http = proxy.run(req)
-    //     .and_then(|res| res.body().concat2())
-    //     .map(move |body: Chunk| ::std::str::from_utf8(&body).unwrap().to_string());
-
-    // let _http_res = core.run(fut_http).unwrap();
-    // println!("{}", _http_res);
-
-    // LruDiskCache::new("/tmp/cache_folder", 1).unwrap();
-    // thread::sleep(time::Duration::from_millis(60*1000));
-
-    // run().unwrap();
-
     pretty_env_logger::init();
 
     let matches = App::new("Local Bazel Cache And Proxy")
@@ -135,27 +118,21 @@ fn main() {
 
 
     match proxy {
-        Some(e) =>{
+        Some(e) => {
             let proxy_uri = HyperlocalUri::new(e, "/").into();
             let connector = ProxyConnector::new(UnixConnector::new(), proxy_uri).unwrap();
-            let http_client = Client::builder().build::<_, Body>(connector);
+            // The no keep alive here is super important when using a unix socket proxy
+            // this will cause hyper to hang trying to share the connection!
+            let http_client = Client::builder().keep_alive(false).build::<_, Body>(
+                connector,
+            );
             let downloader = Downloader::new(&cfg).unwrap();
             local_cache_proxy::net::start_server(cfg, downloader, http_client).unwrap();
-        },
-        None =>{
+        }
+        None => {
             let http_client = Client::builder().build::<_, Body>(HttpConnector::new(4));
             let downloader = Downloader::new(&cfg).unwrap();
             local_cache_proxy::net::start_server(cfg, downloader, http_client).unwrap();
         }
     };
-
-
-
-
-
-    // core.run(downloader.fetch_file(
-    //     &"http://www.google.com".parse().unwrap()
-    // )).unwrap();
-    // println!("data: {:?}", cfg);
-
 }

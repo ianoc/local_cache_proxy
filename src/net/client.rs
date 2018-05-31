@@ -15,7 +15,7 @@ use std::io::Write;
 use hyper::{Body, StatusCode};
 use futures;
 use futures::future::Either;
-
+use http::header;
 
 pub struct Downloader {
     pub tmp_download_root: Arc<Mutex<TempDir>>,
@@ -113,7 +113,6 @@ impl Downloader {
 
         let lru_cache_copy = Arc::clone(&self.lru_cache);
 
-        info!("here");
 
         Box::new(
             http_response
@@ -122,7 +121,11 @@ impl Downloader {
                     e.description().to_string()
                 })
                 .and_then(move |res| {
-                    info!("Got res back : {:?}", res);
+                    info!(
+                        "Got res back : {:?} with length: {:?}",
+                        res,
+                        res.headers().get(header::CONTENT_LENGTH)
+                    );
                     match res.status() {
                         StatusCode::OK => {
                             let mut file = fs::File::create(&file_path).unwrap();
