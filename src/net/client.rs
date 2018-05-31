@@ -12,7 +12,6 @@ use hyper::Uri;
 use std::fs;
 use hyper::Request;
 use std::io::Write;
-use http::header::CONTENT_LENGTH;
 use hyper::{Body, StatusCode};
 use futures;
 use futures::future::Either;

@@ -98,7 +98,10 @@ impl fmt::Display for ServerError {
 impl StdError for ServerError {
     fn description(&self) -> &str {
         match self {
-            ServerError::IoError(e) => StdError::description(e),
+            ServerError::IoError(e) => {
+                error!("errr:: {:?}", e);
+                StdError::description(e)
+            }
             ServerError::HyperError(e) => StdError::description(e),
             ServerError::BindError(_e) => "Bind error",
             ServerError::StreamingError(e) => StdError::description(e),
@@ -221,12 +224,18 @@ impl Stream for FileChunkStream {
 }
 
 struct BufferedSendStream {
+    file_name: String,
     file_chunk_stream: FileChunkStream,
     sender: hyper::body::Sender,
 }
 impl BufferedSendStream {
-    fn new(file_chunk_stream: FileChunkStream, sender: hyper::body::Sender) -> BufferedSendStream {
+    fn new(
+        file_name: &String,
+        file_chunk_stream: FileChunkStream,
+        sender: hyper::body::Sender,
+    ) -> BufferedSendStream {
         BufferedSendStream {
+            file_name: file_name.clone(),
             file_chunk_stream: file_chunk_stream,
             sender: sender,
         }
@@ -238,18 +247,23 @@ impl Future for BufferedSendStream {
 
     fn poll(&mut self) -> Result<Async<()>, ServerError> {
         loop {
-            self.sender.poll_ready()?;
+            match self.sender.poll_ready() {
+                Ok(Async::Ready(_)) => (),
+                Ok(Async::NotReady) => return Ok(Async::NotReady),
+                Err(e) => return Ok(Async::Ready(())),
+            };
 
             match self.file_chunk_stream.poll()? {
                 Async::Ready(None) => return Ok(Async::Ready(())),
                 Async::Ready(Some(Ok(buf))) => {
                     self.sender.send_data(buf).map_err(|_e| {
+                        error!("Failed to send chunk for file {}", self.file_name);
                         "Failed to send chunk".to_string()
                     })?;
                     return Ok(Async::NotReady);
                 }
                 Async::Ready(Some(Err(e))) => {
-                    warn!("Failed to send file, error: {:?}", e);
+                    warn!("Failed to send file: {}, error: {:?}", self.file_name, e);
                     return Ok(Async::Ready(()));
                 }
                 Async::NotReady => return Ok(Async::NotReady),
@@ -295,14 +309,14 @@ fn send_file(path: String) -> ResponseFuture {
     res.header(header::CONTENT_LENGTH, header_size);
 
 
-    let file = match File::open(path) {
+    let file = match File::open(&path) {
         Ok(file) => file,
         Err(err) => return Box::new(future::err(err).map_err(From::from)),
     };
 
     let (sender, body) = Body::channel();
     hyper::rt::spawn(
-        BufferedSendStream::new(FileChunkStream(file), sender)
+        BufferedSendStream::new(&path, FileChunkStream(file), sender)
             .map(|_| ())
             .map_err(|_| ()),
     );
@@ -404,7 +418,7 @@ fn put_request(req: Request<Body>, downloader: &Downloader, _config: &AppConfig)
 
     let file_name = build_file_name(req.uri());
 
-    info!("Uploading {:?} as {:?}", req.uri().path(), file_name);
+    debug!("Uploading {:?} as {:?}", req.uri().path(), file_name);
 
     Box::new(
         downloader
