@@ -44,10 +44,11 @@ where
     <S::Service as ::hyper::service::Service>::Future: Send + 'static,
     Bd: Payload,
 {
-    let bind_path = bind_target.authority().unwrap();
-    let svr = hyperlocal::server::Http::new().bind(bind_path, s)?;
-    svr.run()?;
-    Ok(())
+    unimplemented!()
+    // let bind_path = bind_target.authority().unwrap();
+    // let svr = hyperlocal::server::Http::new().bind(bind_path, s)?;
+    // svr.run()?;
+    // Ok(())
 }
 
 

@@ -15,4 +15,8 @@ impl AppConfig {
     pub fn upstream(&self) -> HyperUri {
         self.upstream.clone()
     }
+
+    pub fn proxy(&self) -> Option<String> {
+        self.proxy.clone()
+    }
 }

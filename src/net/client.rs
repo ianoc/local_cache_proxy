@@ -80,7 +80,10 @@ impl Downloader {
                 })
                 .map(move |_e| {
                     {
-                        let mut lru_cache = lru_cache_copy.lock().unwrap();
+                        let mut lru_cache = lru_cache_copy.lock().map_err(|e| {
+                            error!("Unable to access lru cache!  for file_name: {}, file_path : {:?}, error: {:?}", file_name, file_path, e);
+                            e
+                        }).unwrap();
                         lru_cache.insert_file(&file_name, file_path).unwrap();
                     }
                     file_name
@@ -97,7 +100,7 @@ impl Downloader {
         file_name: &String,
     ) -> Box<Future<Item = Option<String>, Error = String> + Send> {
 
-        // info!("Querying for uri: {:?}", uri);
+        info!("Querying for uri: {:?}", uri);
 
         let req = Request::get(uri.clone()).body(Body::empty()).unwrap();
         let tmp_download_root = &self.tmp_download_root;
@@ -110,17 +113,19 @@ impl Downloader {
 
         let lru_cache_copy = Arc::clone(&self.lru_cache);
 
+        info!("here");
 
         Box::new(
             http_response
-                .map_err(|e| e.description().to_string())
+                .map_err(|e| {
+                    warn!("Error in req: {:?}", e);
+                    e.description().to_string()
+                })
                 .and_then(move |res| {
+                    info!("Got res back : {:?}", res);
                     match res.status() {
-
                         StatusCode::OK => {
                             let mut file = fs::File::create(&file_path).unwrap();
-
-
                             Either::B(
                                 res.into_body()
                                     .for_each(move |chunk| {

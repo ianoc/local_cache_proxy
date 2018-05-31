@@ -1,37 +1,47 @@
-// use hyper::Client;
-// use hyper_proxy::{Proxy as IntProxy, ProxyConnector, Intercept};
-// use tokio_core::reactor::Core;
-// use hyperlocal::{UnixConnector, Uri as LocalUri};
-// use std::fmt;
-// use std::sync::{Arc, Mutex};
+use tokio::io::AsyncRead;
+use tokio::io::AsyncWrite;
+use hyper::client::connect::Connected;
+use hyper::client::connect::Destination;
+use http::Uri;
+use hyper::client::connect::Connect;
+use futures::Future;
+use std::io;
 
-// pub struct Proxy {
-//     pub client: Arc<Mutex<Client<ProxyConnector<UnixConnector>>>>,
-// }
+/// A wrapper around `Proxy`s with a connector.
+#[derive(Clone)]
+#[derive(Debug)]
+pub struct ProxyConnector<C> {
+    proxy: Uri,
+    connector: C,
+}
 
-// impl fmt::Debug for Proxy {
-//     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-//         write!(f, "Proxy connector")
-//     }
-// }
+impl<C, T: 'static> Connect for ProxyConnector<C>
+    where C: Connect<Error = io::Error, Transport = T, Future=Box<Future<Item = (T, Connected), Error = io::Error> + Send>>,
+    T: AsyncWrite + Send + AsyncRead
+        {
+        type Transport = T;
+        type Error = io::Error;
+        type Future = Box<Future<Item = (T, Connected), Error = io::Error> + Send>;
 
-// impl Proxy {
-//     /// Create a new, empty, instance of `Shared`.
-//     pub fn new(core: &Core) -> Self {
-//         let connector =
-//             {
-//                 let proxy_uri = LocalUri::new(format!("{}/.stripeproxy", "/User/ianoc"), "/")
-//                     .into(); //".stripeproxy".parse().unwrap();
-//                 let mut proxy = IntProxy::new(Intercept::All, proxy_uri);
-//                 let connector = UnixConnector::new(core.handle());
-//                 let proxy_connector = ProxyConnector::from_proxy(connector, proxy).unwrap();
-//                 proxy_connector
-//             };
+     fn connect(&self, _dst: Destination) -> Self::Future {
+            info!("Going to connect to self.proxy: {:?} when real destination is: {:?}", self.proxy, _dst);
+            let proxy = self.proxy.clone();
+            Box::new(self.connector.connect(Destination::new(&self.proxy)).map(move |(s, c)| {
+                info!("Connected to self.proxy: {:?} when real destination is: {:?}", proxy, _dst);
+            (s, c.proxy(true))
+        }))
+    }
+}
 
-//         Proxy {
-//             client: Arc::new(Mutex::new(Client::configure().connector(connector).build(
-//                 &core.handle(),
-//             ))),
-//         }
-//     }
-// }
+impl<C> ProxyConnector<C> {
+    pub fn new(connector: C, proxy: Uri) -> Result<Self, io::Error> {
+        Ok(ProxyConnector {
+            proxy: proxy,
+            connector: connector,
+        })
+    }
+
+}
+
+
+

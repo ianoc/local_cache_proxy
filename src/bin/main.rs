@@ -9,18 +9,21 @@ extern crate local_cache_proxy;
 extern crate pretty_env_logger;
 extern crate tokio;
 
-use hyper::client::Client;
+use hyper::Body;
+use hyper::Client;
 use clap::{App, Arg};
 use std::env;
 #[macro_use]
 extern crate log;
-
+use hyperlocal::{Uri as HyperlocalUri};
 
 // use std::{thread, time};
 
 use local_cache_proxy::config::AppConfig;
 use local_cache_proxy::net::Downloader;
-
+use local_cache_proxy::net::ProxyConnector;
+use hyperlocal::{UnixConnector};
+use hyper::client::HttpConnector;
 
 fn main() {
     // let proxy = Proxy::new(&core);
@@ -130,12 +133,29 @@ fn main() {
         None => println!("No proxy set"),
     };
 
-    let downloader = Downloader::new(&cfg).unwrap();
+
+    match proxy {
+        Some(e) =>{
+            let proxy_uri = HyperlocalUri::new(e, "/").into();
+            let connector = ProxyConnector::new(UnixConnector::new(), proxy_uri).unwrap();
+            let http_client = Client::builder().build::<_, Body>(connector);
+            let downloader = Downloader::new(&cfg).unwrap();
+            local_cache_proxy::net::start_server(cfg, downloader, http_client).unwrap();
+        },
+        None =>{
+            let http_client = Client::builder().build::<_, Body>(HttpConnector::new(4));
+            let downloader = Downloader::new(&cfg).unwrap();
+            local_cache_proxy::net::start_server(cfg, downloader, http_client).unwrap();
+        }
+    };
+
+
+
+
 
     // core.run(downloader.fetch_file(
     //     &"http://www.google.com".parse().unwrap()
     // )).unwrap();
     // println!("data: {:?}", cfg);
 
-    local_cache_proxy::net::start_server(cfg, downloader, Client::new()).unwrap();
 }
