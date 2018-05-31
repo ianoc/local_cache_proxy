@@ -30,6 +30,7 @@ use http::header::HeaderValue;
 use futures::{future, Future, Async, Poll};
 use hyper::{Body, Method, Request, Response, StatusCode};
 use std::path::Path;
+use std::time::{Duration, Instant};
 
 
 fn start_unix_server_impl<S, Bd>(bind_target: &hyper::Uri, s: S) -> Result<(), ServerError>
@@ -347,6 +348,7 @@ fn build_query_uri(upstream_uri: &HyperUri, query_uri: &HyperUri) -> Result<Hype
 }
 
 fn get_request<C: Connect + 'static>(
+    instant: Instant,
     req: Request<Body>,
     downloader: &Downloader,
     http_client: &Client<C>,
@@ -357,7 +359,7 @@ fn get_request<C: Connect + 'static>(
     let data_source_path = Path::new(&config.cache_folder).join(&file_name);
     let downloader = downloader.clone();
     let http_client = http_client.clone();
-
+    let path = req.uri().path().to_string().clone();
     Box::new(
         futures::done(build_query_uri(&config.upstream(), &req.uri())).and_then(move |query_uri| {
 
@@ -388,6 +390,11 @@ fn get_request<C: Connect + 'static>(
                         ),
 
                         None => {
+                            info!(
+                                "Get request to {:?} took {} seconds",
+                                path,
+                                instant.elapsed().as_secs()
+                            );
                             // We decided not to download the file, so 404 it!
                             let mut res = Response::new(Body::empty());
                             *res.status_mut() = StatusCode::NOT_FOUND;
@@ -396,7 +403,11 @@ fn get_request<C: Connect + 'static>(
                     }
                 })
                 .or_else(move |o| {
-                    warn!("Error: {:?}", o);
+                    warn!(
+                        "Error: {:?} after {} seconds",
+                        o,
+                        instant.elapsed().as_secs()
+                    );
                     let e: ResponseFuture = Box::new(futures::future::ok({
                         let mut res = Response::new(
                             format!("Requested uri: {:?}\n{:?}", req_uri_string, o)
@@ -414,16 +425,29 @@ fn get_request<C: Connect + 'static>(
 }
 
 
-fn put_request(req: Request<Body>, downloader: &Downloader, _config: &AppConfig) -> ResponseFuture {
+fn put_request(
+    instant: Instant,
+    req: Request<Body>,
+    downloader: &Downloader,
+    _config: &AppConfig,
+) -> ResponseFuture {
 
     let file_name = build_file_name(req.uri());
 
     debug!("Uploading {:?} as {:?}", req.uri().path(), file_name);
 
+    let path = req.uri().path().to_string().clone();
     Box::new(
         downloader
             .save_file(&file_name, req)
-            .map(|_file| empty_with_status_code(StatusCode::CREATED))
+            .map(move |_file| {
+                info!(
+                    "Put request to {:?} took {} seconds",
+                    path,
+                    instant.elapsed().as_secs()
+                );
+                empty_with_status_code(StatusCode::CREATED)
+            })
             .map_err(From::from),
     )
 }
@@ -448,8 +472,10 @@ where
         service_fn(move |req| {
             Box::new(
                 match req.method() {
-                    &Method::GET => get_request(req, &downloader, &http_client, &config),
-                    &Method::PUT => put_request(req, &downloader, &config),
+                    &Method::GET => {
+                        get_request(Instant::now(), req, &downloader, &http_client, &config)
+                    }
+                    &Method::PUT => put_request(Instant::now(), req, &downloader, &config),
                     _ => {
                         info!(
                             "Attempted {:?} operation to {:?}",

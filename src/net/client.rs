@@ -1,4 +1,5 @@
 
+use http::Response;
 use hyper::client::connect::Connect;
 use futures::{Future, Stream};
 use hyper::client::Client;
@@ -16,6 +17,8 @@ use hyper::{Body, StatusCode};
 use futures;
 use futures::future::Either;
 use http::header;
+use std::time::{Duration, Instant};
+use tokio::timer::Delay;
 
 pub struct Downloader {
     pub tmp_download_root: Arc<Mutex<TempDir>>,
@@ -37,7 +40,42 @@ impl Clone for Downloader {
     }
 }
 
+pub fn connect_for_file<'a, C: Connect + 'static>(
+    http_client: Client<C>,
+    uri: Uri,
+    tries: i32,
+) -> Box<Future<Item = Response<Body>, Error = String> + Send + 'static> {
+    let http_response = http_client.request(Request::get(uri.clone()).body(Body::empty()).unwrap());
+    let when = Instant::now() + Duration::from_millis(1000 * 5);
+    let task = Delay::new(when);
 
+    let timeout = task.then(|_| Err("Request timeout".to_string()));
+
+    let ret: Box<Future<Item = Response<Body>, Error = String> + Send + 'static> = Box::new(
+        http_response
+            .map_err(|e| {
+                warn!("Error in req: {:?}", e);
+                e.description().to_string()
+            })
+            .select(timeout)
+            .map(|(e, _)| e)
+            .map_err(|(e, _)| e),
+    );
+
+    if tries > 0 {
+        info!(
+            "Going to preform retry fetching from remote cache, {} tries left",
+            tries
+        );
+        Box::new(ret.or_else(move |_| {
+            Delay::new(Instant::now() + Duration::from_millis(1000))
+                .map_err(|_| "timeout error".to_string())
+                .and_then(move |_| connect_for_file(http_client, uri, tries - 1))
+        }))
+    } else {
+        ret
+    }
+}
 
 impl Downloader {
     /// Create a new, empty, instance of `Shared`.
@@ -80,10 +118,18 @@ impl Downloader {
                 })
                 .map(move |_e| {
                     {
-                        let mut lru_cache = lru_cache_copy.lock().map_err(|e| {
-                            error!("Unable to access lru cache!  for file_name: {}, file_path : {:?}, error: {:?}", file_name, file_path, e);
-                            e
-                        }).unwrap();
+                        let mut lru_cache = lru_cache_copy
+                            .lock()
+                            .map_err(|e| {
+                                error!(
+                                    "Fail access lru cache for name: {}, path: {:?}, error: {:?}",
+                                    file_name,
+                                    file_path,
+                                    e
+                                );
+                                e
+                            })
+                            .unwrap();
                         lru_cache.insert_file(&file_name, file_path).unwrap();
                     }
                     file_name
@@ -93,7 +139,10 @@ impl Downloader {
 
     }
 
-    pub fn fetch_file<C: Connect + 'static>(
+
+
+
+    pub fn fetch_file<'a, C: Connect + 'static>(
         self: &Self,
         http_client: &Client<C>,
         uri: &Uri,
@@ -102,24 +151,17 @@ impl Downloader {
 
         info!("Querying for uri: {:?}", uri);
 
-        let req = Request::get(uri.clone()).body(Body::empty()).unwrap();
         let tmp_download_root = &self.tmp_download_root;
         let file_name = file_name.clone();
         let file_path = tmp_download_root.lock().unwrap().path().join(
             file_name.clone(),
         );
 
-        let http_response = http_client.request(req);
-
         let lru_cache_copy = Arc::clone(&self.lru_cache);
 
-
         Box::new(
-            http_response
-                .map_err(|e| {
-                    warn!("Error in req: {:?}", e);
-                    e.description().to_string()
-                })
+            connect_for_file(http_client.clone(), uri.clone(), 3)
+                // .select(timeout)
                 .and_then(move |res| {
                     info!(
                         "Got res back : {:?} with length: {:?}",
