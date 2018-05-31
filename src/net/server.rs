@@ -1,3 +1,5 @@
+use net::buffered_send_stream;
+
 use futures::sync::mpsc::SendError;
 use hyper::Chunk;
 use hyper::Client;
@@ -31,6 +33,7 @@ use futures::{future, Future, Async, Poll};
 use hyper::{Body, Method, Request, Response, StatusCode};
 use std::path::Path;
 use std::time::{Duration, Instant};
+use net::background_uploader;
 
 
 fn start_unix_server_impl<S, Bd>(bind_target: &hyper::Uri, s: S) -> Result<(), ServerError>
@@ -205,74 +208,7 @@ fn empty_with_status_code_fut(
 }
 
 // using from https://github.com/stephank/hyper-staticfile/blob/master/src/static_service.rs
-struct FileChunkStream(File);
-impl Stream for FileChunkStream {
-    type Item = Result<Chunk, Error>;
-    type Error = SendError<Self::Item>;
 
-    fn poll(&mut self) -> Poll<Option<Self::Item>, Self::Error> {
-        // TODO: non-blocking read
-        let mut buf: [u8; 10240] = unsafe { mem::uninitialized() };
-        match self.0.read(&mut buf) {
-            Ok(0) => Ok(Async::Ready(None)),
-            Ok(size) => {
-                futures::task::current().notify();
-                Ok(Async::Ready(Some(Ok(Chunk::from(buf[0..size].to_owned())))))
-            }
-            Err(err) => Ok(Async::Ready(Some(Err(err)))),
-        }
-    }
-}
-
-struct BufferedSendStream {
-    file_name: String,
-    file_chunk_stream: FileChunkStream,
-    sender: hyper::body::Sender,
-}
-impl BufferedSendStream {
-    fn new(
-        file_name: &String,
-        file_chunk_stream: FileChunkStream,
-        sender: hyper::body::Sender,
-    ) -> BufferedSendStream {
-        BufferedSendStream {
-            file_name: file_name.clone(),
-            file_chunk_stream: file_chunk_stream,
-            sender: sender,
-        }
-    }
-}
-impl Future for BufferedSendStream {
-    type Item = ();
-    type Error = ServerError;
-
-    fn poll(&mut self) -> Result<Async<()>, ServerError> {
-        loop {
-            match self.sender.poll_ready() {
-                Ok(Async::Ready(_)) => (),
-                Ok(Async::NotReady) => return Ok(Async::NotReady),
-                Err(_e) => return Ok(Async::Ready(())),
-            };
-
-            match self.file_chunk_stream.poll()? {
-                Async::Ready(None) => return Ok(Async::Ready(())),
-                Async::Ready(Some(Ok(buf))) => {
-                    self.sender.send_data(buf).map_err(|_e| {
-                        error!("Failed to send chunk for file {}", self.file_name);
-                        "Failed to send chunk".to_string()
-                    })?;
-                    return Ok(Async::NotReady);
-                }
-                Async::Ready(Some(Err(e))) => {
-                    warn!("Failed to send file: {}, error: {:?}", self.file_name, e);
-                    return Ok(Async::Ready(()));
-                }
-                Async::NotReady => return Ok(Async::NotReady),
-            }
-
-        }
-    }
-}
 
 fn send_file(path: String) -> ResponseFuture {
     let metadata = match fs::metadata(&path) {
@@ -310,18 +246,11 @@ fn send_file(path: String) -> ResponseFuture {
     res.header(header::CONTENT_LENGTH, header_size);
 
 
-    let file = match File::open(&path) {
-        Ok(file) => file,
-        Err(err) => return Box::new(future::err(err).map_err(From::from)),
+
+    let body = match buffered_send_stream::send_file(&path) {
+        Ok(body) => body,
+        Err(err) => return Box::new(future::err(err)),
     };
-
-    let (sender, body) = Body::channel();
-    hyper::rt::spawn(
-        BufferedSendStream::new(&path, FileChunkStream(file), sender)
-            .map(|_| ())
-            .map_err(|_| ()),
-    );
-
     Box::new(future::result(res.body(body)).map_err(From::from))
 }
 
@@ -425,22 +354,38 @@ fn get_request<C: Connect + 'static>(
 }
 
 
-fn put_request(
+fn put_request<C: Connect + 'static>(
     instant: Instant,
     req: Request<Body>,
     downloader: &Downloader,
-    _config: &AppConfig,
+    http_client: &Client<C>,
+    config: &AppConfig,
 ) -> ResponseFuture {
+
 
     let file_name = build_file_name(req.uri());
 
     debug!("Uploading {:?} as {:?}", req.uri().path(), file_name);
+    let upload_http_client = http_client.clone();
+    let uploader_uri = build_query_uri(&config.upstream(), &req.uri()).unwrap();
 
     let path = req.uri().path().to_string().clone();
+    let upload_path = Path::new(&config.cache_folder)
+        .join(&file_name)
+        .to_str()
+        .unwrap()
+        .to_string();
+
+
     Box::new(
         downloader
             .save_file(&file_name, req)
             .map(move |_file| {
+                background_uploader::maybe_upload_file(
+                    upload_http_client,
+                    uploader_uri,
+                    upload_path,
+                );
                 info!(
                     "Put request to {:?} took {} seconds",
                     path,
@@ -475,7 +420,9 @@ where
                     &Method::GET => {
                         get_request(Instant::now(), req, &downloader, &http_client, &config)
                     }
-                    &Method::PUT => put_request(Instant::now(), req, &downloader, &config),
+                    &Method::PUT => {
+                        put_request(Instant::now(), req, &downloader, &http_client, &config)
+                    }
                     _ => {
                         info!(
                             "Attempted {:?} operation to {:?}",

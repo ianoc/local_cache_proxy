@@ -19,6 +19,7 @@ use futures::future::Either;
 use http::header;
 use std::time::{Duration, Instant};
 use tokio::timer::Delay;
+use net::background_uploader;
 
 pub struct Downloader {
     pub tmp_download_root: Arc<Mutex<TempDir>>,
@@ -40,7 +41,7 @@ impl Clone for Downloader {
     }
 }
 
-pub fn connect_for_file<'a, C: Connect + 'static>(
+pub fn connect_for_file<C: Connect + 'static>(
     http_client: Client<C>,
     uri: Uri,
     tries: i32,
@@ -110,7 +111,6 @@ impl Downloader {
         Box::new(
             req.into_body()
                 .for_each(move |chunk| {
-
                     file.write_all(&chunk).map_err(|e| {
                         panic!("example expects stdout is open, error={}", e)
                     })
@@ -138,8 +138,6 @@ impl Downloader {
         )
 
     }
-
-
 
 
     pub fn fetch_file<'a, C: Connect + 'static>(
@@ -185,7 +183,11 @@ impl Downloader {
                                         lru_cache
                                             .insert_file(&file_name, file_path)
                                             .map_err(|e| e.description().to_string())
-                                            .map(|_| Some(file_name))
+                                            .map(move |_| {
+                                                Some(file_name)
+                                            })
+
+
                                     })
                                     .map_err(|e| e.description().to_string())
                                     .flatten(),
