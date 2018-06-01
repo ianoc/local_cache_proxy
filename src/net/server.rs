@@ -33,10 +33,13 @@ use futures::{future, Future, Async, Poll};
 use hyper::{Body, Method, Request, Response, StatusCode};
 use std::path::Path;
 use std::time::{Duration, Instant};
-use net::background_uploader;
+use net::background_uploader::RequestUpload;
 
 
-fn start_unix_server_impl<S, Bd>(bind_target: &hyper::Uri, s: S) -> Result<(), ServerError>
+fn start_unix_server_impl<S, Bd>(
+    bind_target: &hyper::Uri,
+    s: S,
+) -> Result<Box<Future<Item = (), Error = ()> + Send>, ServerError>
 where
     S: Sync,
     S: NewService<ReqBody = Body, ResBody = Bd> + Send + 'static,
@@ -55,7 +58,10 @@ where
 }
 
 
-fn start_http_server_impl<S, Bd>(bind_target: &hyper::Uri, s: S) -> Result<(), ServerError>
+fn start_http_server_impl<S, Bd>(
+    bind_target: &hyper::Uri,
+    s: S,
+) -> Result<Box<Future<Item = (), Error = ()> + Send>, ServerError>
 where
     S: NewService<ReqBody = Body, ResBody = Bd> + Send + 'static,
     S::Error: Into<Box<::std::error::Error + Send + Sync>>,
@@ -75,9 +81,10 @@ where
         eprintln!("server error: {}", e)
     });
 
-    hyper::rt::run(server);
 
-    Ok(())
+    // hyper::rt::run(server);
+
+    Ok(Box::new(server))
 }
 
 
@@ -354,19 +361,18 @@ fn get_request<C: Connect + 'static>(
 }
 
 
-fn put_request<C: Connect + 'static>(
+fn put_request(
     instant: Instant,
     req: Request<Body>,
     downloader: &Downloader,
-    http_client: &Client<C>,
     config: &AppConfig,
+    request_upload: &RequestUpload,
 ) -> ResponseFuture {
 
 
     let file_name = build_file_name(req.uri());
 
     debug!("Uploading {:?} as {:?}", req.uri().path(), file_name);
-    let upload_http_client = http_client.clone();
     let uploader_uri = build_query_uri(&config.upstream(), &req.uri()).unwrap();
 
     let path = req.uri().path().to_string().clone();
@@ -377,15 +383,13 @@ fn put_request<C: Connect + 'static>(
         .to_string();
 
 
+    let uploader = request_upload.clone();
+
     Box::new(
         downloader
             .save_file(&file_name, req)
             .map(move |_file| {
-                background_uploader::maybe_upload_file(
-                    upload_http_client,
-                    uploader_uri,
-                    upload_path,
-                );
+                uploader.upload(&uploader_uri, &upload_path).unwrap();
                 info!(
                     "Put request to {:?} took {} seconds",
                     path,
@@ -407,12 +411,17 @@ where
     C: Connect,
 {
 
+
+    let (uploader, channel) = ::net::background_uploader::start_uploader(&_config, &http_client);
+
+
     let cfg = _config.clone();
     let new_service = move || {
         // Move a clone of `client` into the `service_fn`.
         let downloader = downloader.clone();
         let http_client = http_client.clone();
         let config = cfg.clone();
+        let request_upload = channel.clone();
 
         service_fn(move |req| {
             Box::new(
@@ -421,7 +430,7 @@ where
                         get_request(Instant::now(), req, &downloader, &http_client, &config)
                     }
                     &Method::PUT => {
-                        put_request(Instant::now(), req, &downloader, &http_client, &config)
+                        put_request(Instant::now(), req, &downloader, &config, &request_upload)
                     }
                     _ => {
                         info!(
@@ -443,7 +452,7 @@ where
     };
 
 
-    match _config.bind_target.scheme() {
+    let server_engine = match _config.bind_target.scheme() {
         Some("unix") => {
             debug!(
                 "Going to remove existing socket path: {}",
@@ -476,7 +485,6 @@ where
                     )
                 })?
         }
-
         _o => {
             return Err(io::Error::new(
                 io::ErrorKind::InvalidInput,
@@ -486,6 +494,8 @@ where
                 ),
             ))
         }
-    }
+    };
+
+    hyper::rt::run(server_engine.join(uploader).map(|_| ()).map_err(|_| ()));
     return Ok(());
 }

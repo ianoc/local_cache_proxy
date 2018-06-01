@@ -1,10 +1,11 @@
 // #![deny(missing_docs)]
 // #![deny(warnings)]
-#![deny(missing_debug_implementations)]
+// #![deny(missing_debug_implementations)]
 
 extern crate tempdir;
 extern crate hyper;
 extern crate hyper_proxy;
+#[macro_use]
 extern crate futures;
 extern crate tokio_core;
 extern crate hyperlocal;
