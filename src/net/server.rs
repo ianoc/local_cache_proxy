@@ -1,23 +1,18 @@
 use net::buffered_send_stream;
 
-use futures::sync::mpsc::SendError;
-use hyper::Chunk;
 use hyper::Client;
 use std::error::Error as StdError;
 
 use hyper::service::service_fn;
 use hyper::body::Payload;
 use hyper;
-use futures::Stream;
 use config::AppConfig;
 use std::io;
-use std::io::{Read, ErrorKind as IoErrorKind};
-use std::io::Error;
-use std::mem;
+use std::io::ErrorKind as IoErrorKind;
 use std::fmt;
 
 use std::result::Result;
-use net::Downloader;
+use net::downloader::Downloader;
 use hyper::client::connect::Connect;
 use futures;
 use hyper::service::NewService;
@@ -25,20 +20,20 @@ use hyper::Server;
 use std;
 use hyper::Uri as HyperUri;
 use http::uri::{Parts, PathAndQuery};
-use std::fs::{self, File};
+use std::fs;
 use bytes::Bytes;
 use http::header;
 use http::header::HeaderValue;
-use futures::{future, Future, Async, Poll};
+use futures::{future, Future};
 use hyper::{Body, Method, Request, Response, StatusCode};
 use std::path::Path;
-use std::time::{Duration, Instant};
+use std::time::Instant;
 use net::background_uploader::RequestUpload;
 
 
 fn start_unix_server_impl<S, Bd>(
-    bind_target: &hyper::Uri,
-    s: S,
+    _bind_target: &hyper::Uri,
+    _s: S,
 ) -> Result<Box<Future<Item = (), Error = ()> + Send>, ServerError>
 where
     S: Sync,
@@ -296,6 +291,7 @@ fn get_request<C: Connect + 'static>(
     let downloader = downloader.clone();
     let http_client = http_client.clone();
     let path = req.uri().path().to_string().clone();
+
     Box::new(
         futures::done(build_query_uri(&config.upstream(), &req.uri())).and_then(move |query_uri| {
 
@@ -319,7 +315,7 @@ fn get_request<C: Connect + 'static>(
 
             let downloaded_fut = downloaded_file_future
                 .and_then(move |file_path| {
-
+                    // info!("Get request issued to : {} --> {:?}", req.uri(), file_path);
                     match file_path {
                         Some(_file_name) => send_file(
                             data_source_path.to_str().unwrap().to_string(),
@@ -389,7 +385,20 @@ fn put_request(
         downloader
             .save_file(&file_name, req)
             .map(move |_file| {
-                uploader.upload(&uploader_uri, &upload_path).unwrap();
+                match _file {
+                    Some(_f) => {
+                        uploader
+                            .upload(&uploader_uri, &upload_path)
+                            .map_err(|e| {
+                                warn!("Failed to trigger uploader!: {:?}", e);
+                                ()
+                            })
+                            .unwrap();
+                        ()
+                    }
+                    None => (),
+                };
+
                 info!(
                     "Put request to {:?} took {} seconds",
                     path,
@@ -397,7 +406,10 @@ fn put_request(
                 );
                 empty_with_status_code(StatusCode::CREATED)
             })
-            .map_err(From::from),
+            .map_err(|e| {
+                warn!("Error doing put! {:?}", e);
+                From::from(e)
+            }),
     )
 }
 

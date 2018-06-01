@@ -112,12 +112,6 @@ fn main() {
     info!("Cache folder size in : {:?}", cfg.cache_folder_size);
 
     match proxy {
-        Some(x) => println!("Proxy set to : {}", x),
-        None => println!("No proxy set"),
-    };
-
-
-    match proxy {
         Some(e) => {
             let proxy_uri = HyperlocalUri::new(e, "/").into();
             let connector = ProxyConnector::new(UnixConnector::new(), proxy_uri).unwrap();

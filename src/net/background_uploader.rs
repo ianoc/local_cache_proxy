@@ -15,7 +15,7 @@ use futures::stream::Stream;
 use tokio::prelude::*;
 use futures::sync::mpsc;
 
-
+use std::time::Duration;
 
 
 #[derive(Debug)]
@@ -91,11 +91,14 @@ where
 
         match &mut self.active_future {
             Some(fut) => {
-                try_ready!(fut.poll().map_err(|e| {
-                    warn!("Failed to poll active future with {:?}", e);
-                    ()
-                }));
-                ()
+                match fut.poll() {
+                    Ok(Async::Ready(_)) => (),
+                    Err(e) => {
+                        warn!("Failed to poll active future with {:?}", e);
+                        ()
+                    }
+                    Ok(Async::NotReady) => return Ok(Async::NotReady),
+                }
             }
             None => (),
         };
@@ -121,6 +124,7 @@ where
         ));
 
         info!("Uploader loop!");
+        futures::task::current().notify();
         Ok(Async::NotReady)
     }
 }
@@ -157,11 +161,17 @@ fn run_upload_file<C: Connect + 'static>(
 ) -> Box<Future<Item = (), Error = String> + Send + 'static> {
     info!("Maybe uploading {} to {:?}", path, uri);
     let resp_uri = uri.clone();
+    let ee_resp_uri = uri.clone();
     Box::new(
-        ::net::client::connect_for_file(http_client.clone(), uri.clone(), 3)
-            .map_err(|e| {
-                warn!("Error in check if file exists: {:?}", e);
-            })
+        ::net::client::connect_for_file(
+            http_client.clone(),
+            uri.clone(),
+            10,
+            Duration::from_millis(2000),
+            4,
+        ).map_err(|e| {
+            warn!("Error in check if file exists: {:?}", e);
+        })
             .and_then(move |resp| if resp.status() == StatusCode::OK {
                 info!(
                     "Content already present for {:?}, skipping upload",
@@ -169,7 +179,7 @@ fn run_upload_file<C: Connect + 'static>(
                 );
                 Either::A(futures::future::ok(()))
             } else {
-                info!("Triggering upload for {:?}, skipping upload", resp_uri);
+                info!("Triggering upload for {:?}", resp_uri);
                 Either::B(
                     raw_upload_file(http_client, uri, path)
                         .map_err(|e| {
@@ -179,6 +189,9 @@ fn run_upload_file<C: Connect + 'static>(
                 )
             })
             .map(|_| ())
-            .map_err(|_e| "None".to_string()),
+            .map_err(move |_e| {
+                warn!("Connecting error for {:?}", ee_resp_uri);
+                "None".to_string()
+            }),
     )
 }

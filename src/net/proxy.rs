@@ -36,7 +36,6 @@ where
     type Future = Box<Future<Item = (T, Connected), Error = io::Error> + Send>;
 
     fn connect(&self, _dst: Destination) -> Self::Future {
-        let proxy = self.proxy.clone();
         Box::new(self.connector.connect(Destination::new(&self.proxy)).map(
             move |(s, c)| (s, c.proxy(true)),
         ))
