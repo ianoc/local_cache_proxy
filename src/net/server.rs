@@ -87,7 +87,6 @@ where
 pub enum ServerError {
     IoError(std::io::Error),
     HyperError(::hyper::Error),
-    BindError(::hyperlocal::server::BindError),
     StreamingError(futures::sync::mpsc::SendError<Result<hyper::Chunk, std::io::Error>>),
     StringError(String),
     HttpError(::http::Error),
@@ -109,7 +108,6 @@ impl StdError for ServerError {
                 StdError::description(e)
             }
             ServerError::HyperError(e) => StdError::description(e),
-            ServerError::BindError(_e) => "Bind error",
             ServerError::StreamingError(e) => StdError::description(e),
             ServerError::StringError(e) => e,
             ServerError::HttpError(e) => StdError::description(e),
@@ -131,11 +129,6 @@ impl From<::hyper::Error> for ServerError {
     }
 }
 
-impl From<::hyperlocal::server::BindError> for ServerError {
-    fn from(error: ::hyperlocal::server::BindError) -> Self {
-        ServerError::BindError(error)
-    }
-}
 impl From<String> for ServerError {
     fn from(error: String) -> Self {
         ServerError::StringError(error)

@@ -1,4 +1,5 @@
 
+use net::client::BodyStreamer;
 use net::client::path_exists;
 use net::client::connect_for_file;
 use hyper::client::connect::Connect;
@@ -18,8 +19,11 @@ use hyper::{Body, StatusCode};
 use futures;
 use futures::future::Either;
 use http::header;
-use std::time::Duration;
 use bytes::Buf;
+use rand;
+use std::time::{Instant, Duration};
+use tokio::timer::Delay;
+use hyper::body::Payload;
 
 pub struct Downloader {
     pub config: AppConfig,
@@ -40,6 +44,110 @@ impl Clone for Downloader {
             lru_cache: Arc::clone(&self.lru_cache),
             config: self.config.clone(),
         }
+    }
+}
+
+// fn internal_concurrent_fetch<C: Connect + 'static>(
+//     download_root: String,
+//     http_client: Client<C>,
+//     uri: Uri
+//     ) {
+//     connect_for_head
+// }
+fn internal_fetch_file_with_retries<C: Connect + 'static>(
+    download_root: String,
+    http_client: Client<C>,
+    uri: Uri,
+    tries: i32,
+    sleep_duration: Duration,
+    multiplier: u32,
+) -> Box<Future<Item = Option<String>, Error = String> + Send + 'static> {
+
+    info!("Querying for uri: {:?}", uri);
+
+    let req_uri = uri.clone();
+    let req_uri2 = uri.clone();
+    let req_uri3 = uri.clone();
+
+    let next_download_root = download_root.clone();
+
+    let initial_file_response = connect_for_file(
+        http_client.clone(),
+        uri.clone(),
+        1,
+        Duration::from_millis(500),
+        1,
+    );
+
+    let fetch_fut = Box::new(initial_file_response.and_then(move |res| {
+        info!(
+            "Got res back from req: {:?} with length: {:?}",
+            req_uri,
+            res.headers().get(header::CONTENT_LENGTH)
+        );
+        match res.status() {
+            StatusCode::OK => {
+
+                let temp_file_name: u64 = rand::random();
+
+                let file_path =
+                    ::std::path::Path::new(&download_root).join(temp_file_name.to_string());
+
+
+                let mut file = fs::File::create(&file_path).unwrap();
+                let body = res.into_body();
+                warn!(
+                    "Body content length: {:?} {:?}",
+                    body.content_length(),
+                    body
+                );
+                Either::B(
+                    BodyStreamer::new(body)
+                        .for_each(move |chunk| {
+                            info!(
+                                "Operating on uri: {:?} , got chunk with size {}",
+                                req_uri2,
+                                chunk.remaining()
+                            );
+
+                            file.write_all(&chunk).map_err(|e| {
+                                warn!("example expects stdout is open, error={}", e);
+                                panic!("example expects stdout is open, error={}", e)
+                            })
+                            //.map_err(From::from)
+                        })
+                        .map(move |_| Some(file_path.to_string_lossy().to_string()))
+                        .map_err(|e| e.to_string()),
+                )
+            }
+            _ => Either::A(futures::future::ok(None)),
+        }
+    }));
+
+    if tries > 0 {
+        info!(
+            "Going to preform retry fetching {} from remote cache, {} tries left",
+            req_uri3,
+            tries
+        );
+        Box::new(fetch_fut.or_else(move |_| {
+            Delay::new(Instant::now() + sleep_duration)
+                .map_err(|_| "timeout error".to_string())
+                .and_then(move |_| {
+                    internal_fetch_file_with_retries(
+                        next_download_root,
+                        http_client,
+                        uri,
+                        tries - 1,
+                        sleep_duration * multiplier,
+                        multiplier,
+                    )
+
+
+                })
+        }))
+    } else {
+        fetch_fut
     }
 }
 
@@ -125,6 +233,7 @@ impl Downloader {
     }
 
 
+
     pub fn fetch_file<'a, C: Connect + 'static>(
         self: &Self,
         http_client: &Client<C>,
@@ -136,71 +245,50 @@ impl Downloader {
 
         let tmp_download_root = &self.tmp_download_root;
         let file_name = file_name.clone();
-        let file_path = tmp_download_root.lock().unwrap().path().join(
-            file_name.clone(),
+
+        let fetched_fut = internal_fetch_file_with_retries(
+            tmp_download_root
+                .lock()
+                .unwrap()
+                .path()
+                .clone()
+                .to_string_lossy()
+                .to_string(),
+            http_client.clone(),
+            uri.clone(),
+            3,
+            Duration::from_millis(20000),
+            2,
         );
 
         let lru_cache_copy = Arc::clone(&self.lru_cache);
-        let req_uri = uri.clone();
-        let req_uri2 = uri.clone();
         let req_uri3 = uri.clone();
         let req_uri4 = uri.clone();
 
         Box::new(
-            connect_for_file(
-                http_client.clone(),
-                uri.clone(),
-                3,
-                Duration::from_millis(500),
-                2,
-            ).and_then(move |res| {
-                info!(
-                    "Got res back from req: {:?} with length: {:?}",
-                    req_uri,
-                    res.headers().get(header::CONTENT_LENGTH)
-                );
-                match res.status() {
-                    StatusCode::OK => {
-                        let mut file = fs::File::create(&file_path).unwrap();
-                        Either::B(
-                            res.into_body()
-                                .for_each(move |chunk| {
-                                    info!(
-                                        "Operating on uri: {:?} , got chunk with size {}",
-                                        req_uri2,
-                                        chunk.remaining()
-                                    );
-
-                                    file.write_all(&chunk).map_err(|e| {
-                                        warn!("example expects stdout is open, error={}", e);
-                                        panic!("example expects stdout is open, error={}", e)
-                                    })
-                                    //.map_err(From::from)
-                                })
-                                .map(move |_e| {
-                                    info!("Finished operating on uri: {:?}", req_uri3);
-                                    let mut lru_cache = lru_cache_copy.lock().unwrap();
-                                    lru_cache
-                                        .insert_file(&file_name, file_path)
-                                        .map_err(|e| e.description().to_string())
-                                        .map(move |_| Some(file_name))
-                                })
-                                .map_err(move |e| {
-                                    warn!(
-                                        "Failed operating on uri: {:?}, with error: {:?}",
-                                        req_uri4,
-                                        e
-                                    );
-                                    e.description().to_string()
-                                })
-                                .flatten(),
-                        )
+            fetched_fut
+                .map(move |file_path_opt| {
+                    info!("Finished operating on uri: {:?}", req_uri3);
+                    match file_path_opt {
+                        None => Ok(None),
+                        Some(file_path) => {
+                            let mut lru_cache = lru_cache_copy.lock().unwrap();
+                            lru_cache
+                                .insert_file(&file_name, file_path)
+                                .map_err(|e| e.description().to_string())
+                                .map(move |_| Some(file_name))
+                        }
                     }
-                    _ => Either::A(futures::future::ok(None)),
-                }
-
-            })
-                .map_err(|e| e.to_string()),
+                })
+                .and_then(|e| futures::future::result(e))
+                .map_err(move |e| {
+                    warn!(
+                        "Failed operating on uri: {:?}, with error: {:?}",
+                        req_uri4,
+                        e
+                    );
+                    e.to_string()
+                }),
         )
 
     }

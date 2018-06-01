@@ -2,7 +2,6 @@ extern crate hyper;
 extern crate hyper_proxy;
 extern crate futures;
 extern crate tokio_core;
-extern crate hyperlocal;
 extern crate lru_disk_cache;
 extern crate clap;
 extern crate local_cache_proxy;
@@ -16,14 +15,14 @@ use clap::{App, Arg};
 use std::env;
 #[macro_use]
 extern crate log;
-use hyperlocal::Uri as HyperlocalUri;
+use local_cache_proxy::unix_socket::uri::Uri as HyperlocalUri;
 
 // use std::{thread, time};
 
 use local_cache_proxy::config::AppConfig;
 use local_cache_proxy::net::Downloader;
 use local_cache_proxy::net::ProxyConnector;
-use hyperlocal::UnixConnector;
+use local_cache_proxy::unix_socket::unix_connector::UnixConnector;
 use hyper::client::HttpConnector;
 
 
