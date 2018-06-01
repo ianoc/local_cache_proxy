@@ -392,11 +392,13 @@ fn put_request(
                     None => (),
                 };
 
-                info!(
-                    "Put request to {:?} took {} seconds",
-                    path,
-                    instant.elapsed().as_secs()
-                );
+                if instant.elapsed().as_secs() > 60 {
+                    info!(
+                        "Put request to {:?} took {} seconds",
+                        path,
+                        instant.elapsed().as_secs()
+                    );
+                }
                 empty_with_status_code(StatusCode::CREATED)
             })
             .map_err(|e| {

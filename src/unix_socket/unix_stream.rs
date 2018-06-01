@@ -183,7 +183,6 @@ impl<'a> AsyncRead for &'a UnixStream {
     fn read_buf<B: BufMut>(&mut self, buf: &mut B) -> Poll<usize, io::Error> {
 
         if let Async::NotReady = <UnixStream>::poll_read_ready(self, Ready::readable())? {
-            info!("In read -- returning a not ready!");
             return Ok(Async::NotReady);
         }
         unsafe {

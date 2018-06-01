@@ -111,7 +111,7 @@ where
         })) {
             Some(u) => u,
             None => {
-                info!("Uploader Terminating");
+                error!("Uploader Terminating");
                 return Ok(Async::Ready(()));
             }
         };
@@ -123,7 +123,6 @@ where
             upload_request.path,
         ));
 
-        info!("Uploader loop!");
         futures::task::current().notify();
         Ok(Async::NotReady)
     }
@@ -163,23 +162,23 @@ fn run_upload_file<C: Connect + 'static>(
     let resp_uri = uri.clone();
     let ee_resp_uri = uri.clone();
     Box::new(
-        ::net::client::connect_for_file(
+        ::net::client::connect_for_head(
             http_client.clone(),
             uri.clone(),
             10,
-            Duration::from_millis(2000),
+            Duration::from_millis(500),
             4,
         ).map_err(|e| {
             warn!("Error in check if file exists: {:?}", e);
         })
-            .and_then(move |resp| if resp.status() == StatusCode::OK {
+            .and_then(move |resp| if let Some(true) = resp.map(|_e| true) {
                 info!(
-                    "Content already present for {:?}, skipping upload",
-                    resp_uri
+                    "Content already present for {:?}, skipping upload -- {:?}",
+                    resp_uri,
+                    resp
                 );
                 Either::A(futures::future::ok(()))
             } else {
-                info!("Triggering upload for {:?}", resp_uri);
                 Either::B(
                     raw_upload_file(http_client, uri, path)
                         .map_err(|e| {

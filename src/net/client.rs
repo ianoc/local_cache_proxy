@@ -9,7 +9,7 @@ use std::error::Error as StdError;
 use hyper::Uri;
 use std::fs;
 use hyper::Request;
-use hyper::Body;
+use hyper::{Body, StatusCode};
 use futures;
 use tokio::prelude::*;
 use std::fmt;
@@ -43,14 +43,15 @@ pub fn connect_for_file<C: Connect + 'static>(
     );
 
     if tries > 0 {
-        info!(
-            "Going to preform retry fetching from remote cache, {} tries left",
-            tries
-        );
+
         Box::new(ret.or_else(move |_| {
             Delay::new(Instant::now() + sleep_duration)
                 .map_err(|_| "timeout error".to_string())
                 .and_then(move |_| {
+                    info!(
+                        "Going to preform retry fetching from remote cache, {} tries left",
+                        tries
+                    );
                     connect_for_file(
                         http_client,
                         uri,
@@ -87,24 +88,30 @@ pub fn connect_for_head<C: Connect + 'static>(
                 e.description().to_string()
             })
             .select(timeout)
-            .map(|(res, _)| match res.headers()
-                .get(header::CONTENT_LENGTH)
-                .map(|e| e.to_str()) {
-                Some(Ok(e)) => e.parse().map(Some).unwrap_or(None),
+            .map(|(res, _)| match res.status() {
+                StatusCode::OK => {
+                    match res.headers().get(header::CONTENT_LENGTH).map(
+                        |e| e.to_str(),
+                    ) {
+                        Some(Ok(e)) => e.parse().map(Some).unwrap_or(None),
+                        _ => None,
+                    }
+                }
                 _ => None,
             })
             .map_err(|(e, _)| e),
     );
 
     if tries > 0 {
-        info!(
-            "Going to preform retry fetching from remote cache, {} tries left",
-            tries
-        );
+
         Box::new(ret.or_else(move |_| {
             Delay::new(Instant::now() + sleep_duration)
                 .map_err(|_| "timeout error".to_string())
                 .and_then(move |_| {
+                    info!(
+                        "Going to preform retry fetching from remote cache, {} tries left",
+                        tries
+                    );
                     connect_for_head(
                         http_client,
                         uri,

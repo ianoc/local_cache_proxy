@@ -66,7 +66,6 @@ fn internal_fetch_file_with_retries<C: Connect + 'static>(
     info!("Querying for uri: {:?}", uri);
 
     let req_uri = uri.clone();
-    let req_uri2 = uri.clone();
     let req_uri3 = uri.clone();
 
     let next_download_root = download_root.clone();
@@ -95,21 +94,9 @@ fn internal_fetch_file_with_retries<C: Connect + 'static>(
 
 
                 let mut file = fs::File::create(&file_path).unwrap();
-                let body = res.into_body();
-                warn!(
-                    "Body content length: {:?} {:?}",
-                    body.content_length(),
-                    body
-                );
                 Either::B(
-                    BodyStreamer::new(body)
+                    BodyStreamer::new(res.into_body())
                         .for_each(move |chunk| {
-                            info!(
-                                "Operating on uri: {:?} , got chunk with size {}",
-                                req_uri2,
-                                chunk.remaining()
-                            );
-
                             file.write_all(&chunk).map_err(|e| {
                                 warn!("example expects stdout is open, error={}", e);
                                 panic!("example expects stdout is open, error={}", e)
@@ -125,15 +112,16 @@ fn internal_fetch_file_with_retries<C: Connect + 'static>(
     }));
 
     if tries > 0 {
-        info!(
-            "Going to preform retry fetching {} from remote cache, {} tries left",
-            req_uri3,
-            tries
-        );
+
         Box::new(fetch_fut.or_else(move |_| {
             Delay::new(Instant::now() + sleep_duration)
                 .map_err(|_| "timeout error".to_string())
                 .and_then(move |_| {
+                    info!(
+                        "Going to preform retry fetching {} from remote cache, {} tries left",
+                        req_uri3,
+                        tries
+                    );
                     internal_fetch_file_with_retries(
                         next_download_root,
                         http_client,
@@ -180,49 +168,37 @@ impl Downloader {
 
         let upload_path = ::std::path::Path::new(&self.config.cache_folder).join(&file_name);
 
-        // Cannot action the fact we know we don't want this file here
-        // why does bazel even send it?
-        //
-        // if we action it here then bazel will see a broken pipe/failed upload
-        //
-        // if path_exists(&upload_path) {
-        //     return Box::new(futures::future::ok(None))
-        // }
-
         let lru_cache_copy = Arc::clone(&self.lru_cache);
 
         let mut file = fs::File::create(&file_path).unwrap();
 
-        let u = req.uri().clone();
         Box::new(
             req.into_body()
                 .for_each(move |chunk| {
-                    info!("Operating on uri: {:?} , got chunk", u);
                     file.write_all(&chunk).map_err(|e| {
                         panic!("example expects stdout is open, error={}", e)
                     })
                 })
                 .map(move |_e| {
-                    {
-                        let mut lru_cache = lru_cache_copy
-                            .lock()
-                            .map_err(|e| {
-                                error!(
-                                    "Fail access lru cache for name: {}, path: {:?}, error: {:?}",
-                                    file_name,
-                                    file_path,
-                                    e
-                                );
+                    let mut lru_cache = lru_cache_copy
+                        .lock()
+                        .map_err(|e| {
+                            error!(
+                                "Fail access lru cache for name: {}, path: {:?}, error: {:?}",
+                                file_name,
+                                file_path,
                                 e
-                            })
-                            .unwrap();
-                        if !path_exists(&upload_path) {
-                            lru_cache.insert_file(&file_name, file_path).unwrap();
-                        }
-
-
+                            );
+                            e
+                        })
+                        .unwrap();
+                    if !path_exists(&upload_path) {
+                        lru_cache.insert_file(&file_name, file_path).unwrap();
+                        info!("Path {:?} doesn't exist", upload_path);
+                        Some(file_name)
+                    } else {
+                        None
                     }
-                    Some(file_name)
                 })
                 .map_err(|e| {
                     warn!("Inner downloader error: {:?}", e);
