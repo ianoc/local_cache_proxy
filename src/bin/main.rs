@@ -1,17 +1,17 @@
+extern crate clap;
+extern crate futures;
 extern crate hyper;
 extern crate hyper_proxy;
-extern crate futures;
-extern crate tokio_core;
-extern crate lru_disk_cache;
-extern crate clap;
 extern crate local_cache_proxy;
+extern crate lru_disk_cache;
 extern crate pretty_env_logger;
 extern crate tokio;
+extern crate tokio_core;
 extern crate tokio_uds;
 
+use clap::{App, Arg};
 use hyper::Body;
 use hyper::Client;
-use clap::{App, Arg};
 use std::env;
 #[macro_use]
 extern crate log;
@@ -19,21 +19,18 @@ use local_cache_proxy::unix_socket::uri::Uri as HyperlocalUri;
 
 // use std::{thread, time};
 
+use hyper::client::HttpConnector;
 use local_cache_proxy::config::AppConfig;
 use local_cache_proxy::net::Downloader;
 use local_cache_proxy::net::ProxyConnector;
 use local_cache_proxy::unix_socket::unix_connector::UnixConnector;
-use hyper::client::HttpConnector;
-
 
 fn main() {
     pretty_env_logger::init();
 
     let matches = App::new("Local Bazel Cache And Proxy")
         .version("0.1")
-        .about(
-            "Handles managing a local disk cache while forwarding cache misses externally",
-        )
+        .about("Handles managing a local disk cache while forwarding cache misses externally")
         .author("Ian O Connell <ianoc@ianoc.net>")
         .arg(
             Arg::with_name("upstream")
@@ -57,9 +54,7 @@ fn main() {
                 .short("b")
                 .long("bind-target")
                 .value_name("BIND_TARGET")
-                .help(
-                    "Where we should bind to, either a unix://<path> or http://<ip/host>:<port>",
-                )
+                .help("Where we should bind to, either a unix://<path> or http://<ip/host>:<port>")
                 .takes_value(true),
         )
         .arg(
@@ -74,6 +69,20 @@ fn main() {
                 .long("cache-folder")
                 .value_name("CACHE_FOLDER")
                 .help("location for the cache")
+                .takes_value(true),
+        )
+        .arg(
+            Arg::with_name("maximum_upload_size")
+                .long("maximum-upload-size")
+                .value_name("MAXIMUM_UPLOAD_SIZE")
+                .help("Max size allowed for remote uploads")
+                .takes_value(true),
+        )
+        .arg(
+            Arg::with_name("maximum_download_size")
+                .long("maximum-download-size")
+                .value_name("MAXIMUM_DOWNLOAD_SIZE")
+                .help("Max size allowed for remote downloads")
                 .takes_value(true),
         )
         .get_matches();
@@ -92,7 +101,6 @@ fn main() {
             .unwrap_or("http://localhost:10487")
             .parse()
             .unwrap(),
-
         cache_folder_size: matches
             .value_of("cache_folder_size")
             .unwrap_or("32212254720")
@@ -105,6 +113,16 @@ fn main() {
                 env::home_dir().unwrap().display()
             ))
             .to_string(),
+        maximum_upload_size: matches
+            .value_of("maximum_upload_size")
+            .unwrap_or("10485760")
+            .parse()
+            .unwrap(),
+        maximum_download_size: matches
+            .value_of("maximum_download_size")
+            .unwrap_or("10485760")
+            .parse()
+            .unwrap(),
     };
 
     info!("setting up bazel cache folder in : {:?}", cfg.cache_folder);
@@ -116,9 +134,9 @@ fn main() {
             let connector = ProxyConnector::new(UnixConnector::new(), proxy_uri).unwrap();
             // The no keep alive here is super important when using a unix socket proxy
             // this will cause hyper to hang trying to share the connection!
-            let http_client = Client::builder().keep_alive(false).build::<_, Body>(
-                connector,
-            );
+            let http_client = Client::builder()
+                .keep_alive(false)
+                .build::<_, Body>(connector);
             let downloader = Downloader::new(&cfg).unwrap();
             local_cache_proxy::net::start_server(cfg, downloader, http_client).unwrap();
         }

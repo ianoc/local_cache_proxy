@@ -8,13 +8,13 @@ use libc;
 use mio::Ready;
 use mio_uds;
 
+use futures;
 use std::fmt;
 use std::io::{self, Read, Write};
 use std::net::Shutdown;
 use std::os::unix::io::{AsRawFd, RawFd};
 use std::os::unix::net::{self, SocketAddr};
 use std::path::Path;
-use futures;
 
 /// A structure representing a connected unix socket.
 ///
@@ -181,7 +181,6 @@ impl<'a> AsyncRead for &'a UnixStream {
     }
 
     fn read_buf<B: BufMut>(&mut self, buf: &mut B) -> Poll<usize, io::Error> {
-
         if let Async::NotReady = <UnixStream>::poll_read_ready(self, Ready::readable())? {
             return Ok(Async::NotReady);
         }
@@ -336,22 +335,8 @@ unsafe fn write_ready<B: Buf>(buf: &mut B, raw_fd: RawFd) -> isize {
     static DUMMY: &[u8] = &[0];
     let iovec = <&IoVec>::from(DUMMY);
     let mut bufs = [
-        iovec,
-        iovec,
-        iovec,
-        iovec,
-        iovec,
-        iovec,
-        iovec,
-        iovec,
-        iovec,
-        iovec,
-        iovec,
-        iovec,
-        iovec,
-        iovec,
-        iovec,
-        iovec,
+        iovec, iovec, iovec, iovec, iovec, iovec, iovec, iovec, iovec, iovec, iovec, iovec, iovec,
+        iovec, iovec, iovec,
     ];
 
     let n = buf.bytes_vec(&mut bufs);

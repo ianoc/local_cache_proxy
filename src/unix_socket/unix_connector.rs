@@ -1,10 +1,10 @@
-use hyper::client::connect::Connected;
 use hyper::client::connect::Connect;
-use std::io;
+use hyper::client::connect::Connected;
 use std::clone::Clone;
+use std::io;
 
-use futures::future;
 use super::unix_stream::UnixStream;
+use futures::future;
 use futures::Future;
 use hyper::client::connect::Destination;
 
@@ -45,7 +45,6 @@ impl Connect for UnixConnector {
     type Transport = UnixStream;
     type Error = io::Error;
     type Future = Box<Future<Item = (UnixStream, Connected), Error = io::Error> + 'static + Send>;
-
 
     fn connect(&self, destination: Destination) -> Self::Future {
         if destination.scheme() != UNIX_SCHEME {

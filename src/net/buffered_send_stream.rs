@@ -1,8 +1,8 @@
-use hyper::Body;
-use net::server::ServerError;
 use futures::Poll;
 use futures::Stream;
+use hyper::Body;
 use hyper::Chunk;
+use net::server::ServerError;
 use std::io::Error;
 
 use futures::sync::mpsc::SendError;
@@ -10,12 +10,11 @@ use std::fs::File;
 
 use std::mem;
 
+use futures;
 use futures::Async;
 use futures::Future;
 use hyper;
-use futures;
 use std::io::Read;
-
 
 pub fn send_file<E>(path: &String) -> Result<Body, E>
 where
@@ -50,7 +49,6 @@ impl Stream for FileChunkStream {
         }
     }
 }
-
 
 pub struct BufferedSendStream {
     file_name: String,
@@ -98,7 +96,6 @@ impl Future for BufferedSendStream {
                 }
                 Async::NotReady => return Ok(Async::NotReady),
             }
-
         }
     }
 }

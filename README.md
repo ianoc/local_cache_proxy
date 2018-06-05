@@ -15,13 +15,13 @@ Features to include:
 
 [ ] Support binding to a unix socket or port.
     -- Bazel doesn't yet support connecting to a unix socket but there is a PR in flight, good for local security
-[ ] Connect directly or via a unix socket based proxy. (http proxy support would be good too for completeness, maybe even socks proxy.)
-[ ] Local LRU cache of files managed by the proxy to ensure it doesn't grow unbounded.
+[x] Connect directly or via a unix socket based proxy. (http proxy support would be good too for completeness, maybe even socks proxy.)
+[x] Local LRU cache of files managed by the proxy to ensure it doesn't grow unbounded.
 [ ] Ideally dynamically calculate our throughput to the upstream, and use that to drive decisions about actions to take
     Initally take options on the command line to specify thresholds
-[ ] Use HTTP headers to determine file size of upstream content, return 404 to bazel if too large
-[ ] Accept all uploads from local bazel, but only forward if file size is below threshold/reasonable to upload
-[ ] Must ensure file is not on remote before upload (since we will have injected extra 404's)
+[x] Use HTTP headers to determine file size of upstream content, return 404 to bazel if too large
+[x] Accept all uploads from local bazel, but only forward if file size is below threshold/reasonable to upload
+[x] Must ensure file is not on remote before upload (since we will have injected extra 404's)
 
 
 Ideal:

@@ -1,19 +1,18 @@
-
-use hyper::Chunk;
 use futures::Poll;
+use futures::{Future, Stream};
+use http::header;
 use http::Response;
 use hyper::client::connect::Connect;
-use futures::{Future, Stream};
 use hyper::client::Client;
-use std::error::Error as StdError;
-use hyper::Uri;
-use std::fs;
+use hyper::Chunk;
 use hyper::Request;
+use hyper::Uri;
 use hyper::{Body, StatusCode};
-use futures;
-use tokio::prelude::*;
+use std::error::Error as StdError;
 use std::fmt;
-use http::header;
+use std::fs;
+use tokio;
+use tokio::prelude::*;
 
 use std::time::{Duration, Instant};
 use tokio::timer::Delay;
@@ -43,7 +42,6 @@ pub fn connect_for_file<C: Connect + 'static>(
     );
 
     if tries > 0 {
-
         Box::new(ret.or_else(move |_| {
             Delay::new(Instant::now() + sleep_duration)
                 .map_err(|_| "timeout error".to_string())
@@ -65,7 +63,6 @@ pub fn connect_for_file<C: Connect + 'static>(
         ret
     }
 }
-
 
 pub fn connect_for_head<C: Connect + 'static>(
     http_client: Client<C>,
@@ -89,21 +86,19 @@ pub fn connect_for_head<C: Connect + 'static>(
             })
             .select(timeout)
             .map(|(res, _)| match res.status() {
-                StatusCode::OK => {
-                    match res.headers().get(header::CONTENT_LENGTH).map(
-                        |e| e.to_str(),
-                    ) {
-                        Some(Ok(e)) => e.parse().map(Some).unwrap_or(None),
-                        _ => None,
-                    }
-                }
+                StatusCode::OK => match res.headers()
+                    .get(header::CONTENT_LENGTH)
+                    .map(|e| e.to_str())
+                {
+                    Some(Ok(e)) => e.parse().map(Some).unwrap_or(None),
+                    _ => None,
+                },
                 _ => None,
             })
             .map_err(|(e, _)| e),
     );
 
     if tries > 0 {
-
         Box::new(ret.or_else(move |_| {
             Delay::new(Instant::now() + sleep_duration)
                 .map_err(|_| "timeout error".to_string())
@@ -133,13 +128,11 @@ pub(super) fn path_exists(path: &::std::path::PathBuf) -> bool {
     }
 }
 
-
 #[derive(Debug)]
 pub enum BodyStreamerError {
     TimeoutError,
     HyperError(::hyper::Error),
 }
-
 
 impl StdError for BodyStreamerError {
     fn description(&self) -> &str {
@@ -161,29 +154,39 @@ impl From<::hyper::Error> for BodyStreamerError {
     }
 }
 
-
-pub(super) struct BodyStreamer(Body, Instant);
+pub(super) struct BodyStreamer {
+    body: Body,
+    instant: Instant,
+    timeout_future: Option<Box<Future<Item = (), Error = tokio::timer::Error> + Send + 'static>>,
+}
 impl BodyStreamer {
     pub fn new(body: Body) -> Self {
-        BodyStreamer(body, Instant::now())
+        BodyStreamer {
+            body: body,
+            instant: Instant::now(),
+            timeout_future: None,
+        }
     }
 }
 impl Stream for BodyStreamer {
     type Error = BodyStreamerError;
     type Item = Chunk;
     fn poll(&mut self) -> Poll<Option<Self::Item>, Self::Error> {
-        let time_since_last_data = Instant::now() - self.1;
-
-        // Notify to ensure we can timeout
-        futures::task::current().notify();
-
-        if time_since_last_data > Duration::from_millis(1000 * 3) {
-            return Err(BodyStreamerError::TimeoutError);
+        match &mut self.timeout_future {
+            Some(ref mut f) => match f.poll() {
+                Ok(Async::Ready(_)) => return Err(BodyStreamerError::TimeoutError),
+                _ => (),
+            },
+            None => (),
         }
 
-        let poll_result = try_ready!(self.0.poll());
+        self.timeout_future = Some(Box::new(Delay::new(
+            Instant::now() + Duration::from_millis(1000 * 3),
+        )));
 
-        self.1 = Instant::now();
+        let poll_result = try_ready!(self.body.poll());
+
+        self.instant = Instant::now();
         Ok(Async::Ready(poll_result))
     }
 }

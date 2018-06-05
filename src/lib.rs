@@ -2,26 +2,26 @@
 // #![deny(warnings)]
 // #![deny(missing_debug_implementations)]
 
-extern crate tempdir;
 extern crate hyper;
 extern crate hyper_proxy;
+extern crate tempdir;
 #[macro_use]
 extern crate futures;
+extern crate bytes;
+extern crate clap;
+extern crate hex;
+extern crate http;
+extern crate iovec;
+extern crate libc;
+extern crate lru_disk_cache;
+extern crate mio;
+extern crate mio_uds;
+extern crate pretty_env_logger;
+extern crate rand;
+extern crate tokio;
 extern crate tokio_core;
 extern crate tokio_io;
 extern crate tokio_reactor;
-extern crate lru_disk_cache;
-extern crate clap;
-extern crate pretty_env_logger;
-extern crate tokio;
-extern crate http;
-extern crate bytes;
-extern crate rand;
-extern crate iovec;
-extern crate libc;
-extern crate mio;
-extern crate mio_uds;
-extern crate hex;
 
 #[macro_use]
 extern crate log;

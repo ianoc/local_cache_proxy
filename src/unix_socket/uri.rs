@@ -1,8 +1,8 @@
 use std::borrow::Cow;
 use std::path::Path;
 
-use hyper::Uri as HyperUri;
 use hex::{FromHex, ToHex};
+use hyper::Uri as HyperUri;
 
 /// A type which implements `Into` for hyper's  `hyper::Uri` type
 /// targetting unix domain sockets.
@@ -45,7 +45,9 @@ impl<'a> Uri<'a> {
     {
         let host = socket.as_ref().to_string_lossy().as_bytes().to_hex();
         let host_str = format!("unix://{}:0{}", host, path);
-        Uri { encoded: Cow::Owned(host_str) }
+        Uri {
+            encoded: Cow::Owned(host_str),
+        }
     }
 
     // fixme: would like to just use hyper::Result and hyper::error::UriError here
@@ -54,9 +56,9 @@ impl<'a> Uri<'a> {
         uri.host()
             .iter()
             .filter_map(|host| {
-                Vec::from_hex(host).ok().map(|raw| {
-                    String::from_utf8_lossy(&raw).into_owned()
-                })
+                Vec::from_hex(host)
+                    .ok()
+                    .map(|raw| String::from_utf8_lossy(&raw).into_owned())
             })
             .next()
     }
@@ -65,9 +67,9 @@ impl<'a> Uri<'a> {
         Some(host)
             .iter()
             .filter_map(|host| {
-                Vec::from_hex(host).ok().map(|raw| {
-                    String::from_utf8_lossy(&raw).into_owned()
-                })
+                Vec::from_hex(host)
+                    .ok()
+                    .map(|raw| String::from_utf8_lossy(&raw).into_owned())
             })
             .next()
     }
