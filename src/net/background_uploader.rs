@@ -128,17 +128,16 @@ where
 
     fn poll(&mut self) -> Poll<(), ()> {
         // Receive all messages from peers.
-
-        match &mut self.active_future {
+        let had_timeout = match &mut self.active_future {
             Some(fut) => match fut.poll() {
-                Ok(Async::Ready(_)) => (),
+                Ok(Async::Ready(_)) => true,
                 Err(e) => {
                     warn!("Failed to poll active future with {:?}", e);
-                    ()
+                    true
                 }
                 Ok(Async::NotReady) => return Ok(Async::NotReady),
             },
-            None => (),
+            None => false,
         };
         self.active_future = None;
 
@@ -147,11 +146,18 @@ where
             s.0.elapsed()
         };
         if time_since_last_req < Duration::from_millis(1000 * 10) {
+            info!("Uploader will not action requests, due to recency of client activity: {:?} seconds ago.", time_since_last_req.as_secs());
             self.active_future = Some(Box::new(
-                Delay::new(Instant::now() + Duration::from_millis(1000 * 30))
+                Delay::new(Instant::now() + Duration::from_millis(1000 * 5))
                     .map_err(|e| e.to_string()),
             ));
-            return Ok(Async::NotReady);
+            // we need to self-poll here to ensure we get notified for changes in
+            // the future behavior
+            return self.poll();
+        } else {
+            if had_timeout {
+                info!("Moving downloader from state of paused for user activity into processing avaiable uploads.");
+            }
         }
 
         let upload_request: UploadRequest = match self.rx.poll().unwrap() {

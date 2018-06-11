@@ -50,19 +50,6 @@ impl<'a> Uri<'a> {
         }
     }
 
-    // fixme: would like to just use hyper::Result and hyper::error::UriError here
-    // but UriError its not exposed for external use
-    fn socket_path(uri: &HyperUri) -> Option<String> {
-        uri.host()
-            .iter()
-            .filter_map(|host| {
-                Vec::from_hex(host)
-                    .ok()
-                    .map(|raw| String::from_utf8_lossy(&raw).into_owned())
-            })
-            .next()
-    }
-
     pub(super) fn socket_path_from_host(host: &str) -> Option<String> {
         Some(host)
             .iter()

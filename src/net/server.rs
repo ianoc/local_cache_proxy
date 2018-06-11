@@ -162,7 +162,7 @@ type ResponseFuture = Box<Future<Item = Response<Body>, Error = ServerError> + S
 fn current_file_size(path: &str) -> Option<u64> {
     match fs::metadata(path) {
         Ok(_meta) => Some(_meta.len()), // file is present
-        Err(e) => None,
+        Err(_e) => None,
     }
 }
 
@@ -394,7 +394,10 @@ pub fn start_server<C: Connect + 'static>(
 where
     C: Connect,
 {
-    let s = Arc::new(Mutex::new(State(Instant::now())));
+    // Somethings won't occur if there have been recent requests, so we initialize this 2 hours in the past.
+    let s = Arc::new(Mutex::new(State(
+        Instant::now() - Duration::from_millis(1000 * 120 * 60),
+    )));
 
     let (uploader, channel) =
         ::net::background_uploader::start_uploader(&_config, &http_client, &s);
