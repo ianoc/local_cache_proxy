@@ -17,6 +17,7 @@ extern crate lru_disk_cache;
 extern crate mio;
 extern crate mio_uds;
 extern crate pretty_env_logger;
+extern crate protobuf;
 extern crate rand;
 extern crate tokio;
 extern crate tokio_core;
@@ -31,3 +32,5 @@ pub mod config;
 pub mod net;
 
 pub mod unix_socket;
+
+pub mod action_result;

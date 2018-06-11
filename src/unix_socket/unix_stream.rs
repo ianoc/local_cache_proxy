@@ -181,7 +181,8 @@ impl<'a> AsyncRead for &'a UnixStream {
     }
 
     fn read_buf<B: BufMut>(&mut self, buf: &mut B) -> Poll<usize, io::Error> {
-        if let Async::NotReady = <UnixStream>::poll_read_ready(self, Ready::readable())? {
+        let readable = Ready::readable();
+        if let Async::NotReady = <UnixStream>::poll_read_ready(self, readable)? {
             return Ok(Async::NotReady);
         }
         unsafe {
@@ -189,9 +190,8 @@ impl<'a> AsyncRead for &'a UnixStream {
             if r == -1 {
                 let e = io::Error::last_os_error();
                 if e.kind() == io::ErrorKind::WouldBlock {
-                    self.io.clear_write_ready()?;
-                    futures::task::current().notify();
-                    Ok(Async::NotReady)
+                    self.io.clear_read_ready(readable)?;
+                    return Ok(Async::NotReady);
                 } else {
                     Err(e)
                 }

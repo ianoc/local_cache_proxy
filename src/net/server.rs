@@ -394,10 +394,7 @@ pub fn start_server<C: Connect + 'static>(
 where
     C: Connect,
 {
-    // Somethings won't occur if there have been recent requests, so we initialize this 2 hours in the past.
-    let s = Arc::new(Mutex::new(State(
-        Instant::now() - Duration::from_millis(1000 * 120 * 60),
-    )));
+    let s = Arc::new(Mutex::new(State(Instant::now())));
 
     let (uploader, channel) =
         ::net::background_uploader::start_uploader(&_config, &http_client, &s);

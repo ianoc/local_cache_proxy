@@ -182,11 +182,10 @@ where
             info!(
                 "Aborting upload of {:?} accessibilty issues or too large",
                 upload_request.path
-            )
+            );
         }
-
-        futures::task::current().notify();
-        Ok(Async::NotReady)
+        // These exit points we go back to the top for.
+        self.poll()
     }
 }
 

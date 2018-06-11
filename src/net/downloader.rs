@@ -62,13 +62,7 @@ fn get_content_length(headers: &header::HeaderMap) -> Option<u64> {
 
     Some(header_size)
 }
-// fn internal_concurrent_fetch<C: Connect + 'static>(
-//     download_root: String,
-//     http_client: Client<C>,
-//     uri: Uri
-//     ) {
-//     connect_for_head
-// }
+
 fn internal_fetch_file_with_retries<C: Connect + 'static>(
     maximum_download_size: u64,
     download_root: String,

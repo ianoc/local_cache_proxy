@@ -10,7 +10,6 @@ use std::fs::File;
 
 use std::mem;
 
-use futures;
 use futures::Async;
 use futures::Future;
 use hyper;
@@ -31,20 +30,17 @@ where
     Ok(body)
 }
 
-pub struct FileChunkStream(pub File);
+struct FileChunkStream(pub File);
 impl Stream for FileChunkStream {
     type Item = Result<Chunk, Error>;
     type Error = SendError<Self::Item>;
 
     fn poll(&mut self) -> Poll<Option<Self::Item>, Self::Error> {
         // TODO: non-blocking read
-        let mut buf: [u8; 10240] = unsafe { mem::uninitialized() };
+        let mut buf: [u8; 4096] = unsafe { mem::uninitialized() };
         match self.0.read(&mut buf) {
             Ok(0) => Ok(Async::Ready(None)),
-            Ok(size) => {
-                futures::task::current().notify();
-                Ok(Async::Ready(Some(Ok(Chunk::from(buf[0..size].to_owned())))))
-            }
+            Ok(size) => Ok(Async::Ready(Some(Ok(Chunk::from(buf[0..size].to_owned()))))),
             Err(err) => Ok(Async::Ready(Some(Err(err)))),
         }
     }
@@ -56,7 +52,7 @@ pub struct BufferedSendStream {
     sender: hyper::body::Sender,
 }
 impl BufferedSendStream {
-    pub fn new(
+    fn new(
         file_name: &String,
         file_chunk_stream: FileChunkStream,
         sender: hyper::body::Sender,
@@ -88,13 +84,13 @@ impl Future for BufferedSendStream {
                         error!("Failed to send chunk for file {}", self.file_name);
                         "Failed to send chunk".to_string()
                     })?;
-                    return Ok(Async::NotReady);
+                    return self.poll();
                 }
                 Async::Ready(Some(Err(e))) => {
                     warn!("Failed to send file: {}, error: {:?}", self.file_name, e);
                     return Ok(Async::Ready(()));
                 }
-                Async::NotReady => return Ok(Async::NotReady),
+                Async::NotReady => panic!("File reading locally should never be not ready, its setup to be blocking currently"),
             }
         }
     }

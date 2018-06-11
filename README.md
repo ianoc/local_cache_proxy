@@ -33,3 +33,10 @@ Some sort of random theory:
 
 Setup a local shared cache around the local network (mDNS or similar things), this would be purely to provide higher throughput access to CAS blobs, which can have their hash checked by the client using the data from the AC which shouldn't use this cache and can have a list of known/trusted hosts.
 
+
+
+Building the protobuf:
+with the protobuf compiler installed...
+
+cargo install protobuf-codegen
+protoc --rust_out src/action_result/ src/proto/action_result.proto
