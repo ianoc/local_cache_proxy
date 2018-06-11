@@ -2,6 +2,7 @@ pub mod background_uploader;
 pub(super) mod buffered_send_stream;
 pub(super) mod client;
 pub(super) mod downloader;
+pub(super) mod process_action_cache;
 mod proxy;
 mod server;
 

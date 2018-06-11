@@ -138,12 +138,12 @@ fn main() {
                 .keep_alive(false)
                 .build::<_, Body>(connector);
             let downloader = Downloader::new(&cfg).unwrap();
-            local_cache_proxy::net::start_server(cfg, downloader, http_client).unwrap();
+            local_cache_proxy::net::start_server(&cfg, downloader, http_client).unwrap();
         }
         None => {
             let http_client = Client::builder().build::<_, Body>(HttpConnector::new(4));
             let downloader = Downloader::new(&cfg).unwrap();
-            local_cache_proxy::net::start_server(cfg, downloader, http_client).unwrap();
+            local_cache_proxy::net::start_server(&cfg, downloader, http_client).unwrap();
         }
     };
 }

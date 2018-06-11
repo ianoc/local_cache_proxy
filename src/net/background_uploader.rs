@@ -20,12 +20,23 @@ use tokio::timer::Delay;
 
 use std::time::Duration;
 
+use std::fmt;
 use std::fs;
 
-#[derive(Debug)]
 struct UploadRequest {
     uri: Uri,
     path: String,
+    should_upload: Option<Box<Fn() -> bool + Send>>,
+}
+
+impl fmt::Debug for UploadRequest {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        write!(
+            f,
+            "UploadRequest: uri: {:?}, path: {:?}",
+            self.uri, self.path
+        )
+    }
 }
 
 type Tx = mpsc::UnboundedSender<UploadRequest>;
@@ -41,12 +52,18 @@ impl Clone for RequestUpload {
 }
 
 impl RequestUpload {
-    pub(super) fn upload(self: Self, uri: &Uri, path: &String) -> Result<(), String> {
+    pub(super) fn upload(
+        self: Self,
+        uri: &Uri,
+        path: &String,
+        should_upload: Box<Fn() -> bool + Send>,
+    ) -> Result<(), String> {
         let uploader = self.0.lock().map_err(|e| e.to_string())?;
         uploader
             .unbounded_send(UploadRequest {
                 uri: uri.clone(),
                 path: path.clone(),
+                should_upload: Some(should_upload),
             })
             .map_err(|e| e.to_string())
     }
@@ -128,16 +145,15 @@ where
 
     fn poll(&mut self) -> Poll<(), ()> {
         // Receive all messages from peers.
-        let had_timeout = match &mut self.active_future {
+        match &mut self.active_future {
             Some(fut) => match fut.poll() {
-                Ok(Async::Ready(_)) => true,
+                Ok(Async::Ready(_)) => (),
                 Err(e) => {
                     warn!("Failed to poll active future with {:?}", e);
-                    true
                 }
                 Ok(Async::NotReady) => return Ok(Async::NotReady),
             },
-            None => false,
+            None => (),
         };
         self.active_future = None;
 
@@ -154,13 +170,9 @@ where
             // we need to self-poll here to ensure we get notified for changes in
             // the future behavior
             return self.poll();
-        } else {
-            if had_timeout {
-                info!("Moving downloader from state of paused for user activity into processing avaiable uploads.");
-            }
         }
 
-        let upload_request: UploadRequest = match self.rx.poll().unwrap() {
+        let mut upload_request: UploadRequest = match self.rx.poll().unwrap() {
             Async::NotReady => {
                 info!("Background uploader returning to idle");
                 return Ok(Async::NotReady);
@@ -172,18 +184,31 @@ where
             }
         };
 
-        if self.should_upload(&upload_request.path) {
+        let mut should_upload = true;
+        if !upload_request.should_upload.take().unwrap()() {
+            info!(
+                "Aborting upload of {:?} Unknown cas upload, didn't see action cache info",
+                upload_request.path
+            );
+            should_upload = false;
+        }
+
+        if !self.should_upload(&upload_request.path) {
+            info!(
+                "Aborting upload of {:?} accessibilty issues, too large",
+                upload_request.path
+            );
+            should_upload = false;
+        }
+
+        if should_upload {
             self.active_future = Some(run_upload_file(
                 self.client.clone(),
                 upload_request.uri,
                 upload_request.path,
             ));
-        } else {
-            info!(
-                "Aborting upload of {:?} accessibilty issues or too large",
-                upload_request.path
-            );
         }
+
         // These exit points we go back to the top for.
         self.poll()
     }

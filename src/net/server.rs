@@ -25,6 +25,7 @@ use hyper::Uri as HyperUri;
 use hyper::{Body, Method, Request, Response, StatusCode};
 use net::background_uploader::RequestUpload;
 use net::downloader::Downloader;
+use net::process_action_cache::process_action_cache_response;
 use std;
 use std::fs;
 use std::path::Path;
@@ -263,6 +264,26 @@ fn get_request<C: Connect + 'static>(
     let http_client = http_client.clone();
     let path = req.uri().path().to_string().clone();
 
+    let cfg = config.clone();
+
+    if file_name.starts_with("cas__") {
+        let gate_file = current_file_size(&format!("{}/enable_{}", config.cache_folder, file_name));
+        let already_present = current_file_size(&format!("{}/{}", config.cache_folder, file_name));
+        match already_present.or(gate_file) {
+            None => {
+                // file we never saw in an action cache message, pretend it doesn't exist.
+                info!(
+                    "Pretending target doesn't exist {:?}, returning 404",
+                    file_name
+                );
+                let mut res = Response::new(Body::empty());
+                *res.status_mut() = StatusCode::NOT_FOUND;
+                return Box::new(futures::future::ok(res));
+            }
+            Some(_) => (),
+        }
+    }
+
     Box::new(
         futures::done(build_query_uri(&config.upstream(), &req.uri())).and_then(move |query_uri| {
             let downloaded_file_future: Box<
@@ -291,6 +312,18 @@ fn get_request<C: Connect + 'static>(
                                     (file_len as f64 / 1_000_000 as f64)
                                         / duration_to_float_seconds(instant.elapsed())
                                 );
+                            }
+                            if req.uri().path().starts_with("/ac/") {
+                                process_action_cache_response(cfg, &file_name)
+                                    .map_err(|e| {
+                                        warn!(
+                                            "Failed to process action cache with: {:?} -- {:?}",
+                                            e,
+                                            data_source_path.to_str().unwrap().to_string()
+                                        );
+                                        ()
+                                    })
+                                    .unwrap_or(());
                             }
                             send_file(data_source_path.to_str().unwrap().to_string())
                         }
@@ -349,15 +382,39 @@ fn put_request(
         .to_string();
 
     let uploader = request_upload.clone();
+    let cache_folder = config.cache_folder.clone();
 
+    let processor_config = config.clone();
     Box::new(
         downloader
             .save_file(&file_name, req)
             .map(move |_file| {
                 match _file {
                     Some(_f) => {
+                        process_action_cache_response(processor_config, &_f)
+                            .map_err(|e| {
+                                warn!("Failed to process action cache with: {:?} for {:?}", e, _f);
+                                ()
+                            })
+                            .unwrap_or(());
                         uploader
-                            .upload(&uploader_uri, &upload_path)
+                            .upload(
+                                &uploader_uri,
+                                &upload_path,
+                                Box::new(move || {
+                                    if file_name.starts_with("cas__") {
+                                        match current_file_size(&format!(
+                                            "{}/enable_{}",
+                                            cache_folder, file_name
+                                        )) {
+                                            None => false,
+                                            Some(_) => true,
+                                        }
+                                    } else {
+                                        true
+                                    }
+                                }),
+                            )
                             .map_err(|e| {
                                 warn!("Failed to trigger uploader!: {:?}", e);
                                 ()
@@ -387,7 +444,7 @@ fn put_request(
 pub struct State(pub Instant);
 
 pub fn start_server<C: Connect + 'static>(
-    _config: AppConfig,
+    config: &AppConfig,
     downloader: Downloader,
     http_client: Client<C>,
 ) -> Result<(), io::Error>
@@ -396,18 +453,18 @@ where
 {
     let s = Arc::new(Mutex::new(State(Instant::now())));
 
-    let (uploader, channel) =
-        ::net::background_uploader::start_uploader(&_config, &http_client, &s);
+    let (uploader, channel) = ::net::background_uploader::start_uploader(config, &http_client, &s);
 
-    let cfg = _config.clone();
+    let cfg = config.clone();
+
     let new_service = move || {
         // Move a clone of `client` into the `service_fn`.
         let downloader = downloader.clone();
         let http_client = http_client.clone();
-        let config = cfg.clone();
         let request_upload = channel.clone();
         let state = Arc::clone(&s);
 
+        let inner_cfg = cfg.clone();
         service_fn(move |req| {
             {
                 let mut locked = state.lock().unwrap();
@@ -415,12 +472,20 @@ where
             }
             Box::new(
                 match req.method() {
-                    &Method::GET => {
-                        get_request(Instant::now(), req, &downloader, &http_client, &config)
-                    }
-                    &Method::PUT => {
-                        put_request(Instant::now(), req, &downloader, &config, &request_upload)
-                    }
+                    &Method::GET => get_request(
+                        Instant::now(),
+                        req,
+                        &downloader,
+                        &http_client,
+                        &inner_cfg.clone(),
+                    ),
+                    &Method::PUT => put_request(
+                        Instant::now(),
+                        req,
+                        &downloader,
+                        &inner_cfg.clone(),
+                        &request_upload,
+                    ),
                     _ => {
                         info!(
                             "Attempted {:?} operation to {:?}",
@@ -439,19 +504,19 @@ where
         })
     };
 
-    let server_engine = match _config.bind_target.scheme() {
+    let server_engine = match config.bind_target.scheme() {
         Some("unix") => {
             info!(
                 "Going to remove existing socket path: {}",
-                _config.bind_target.authority().unwrap()
+                config.bind_target.authority().unwrap()
             );
 
-            fs::remove_file(_config.bind_target.authority().unwrap())?;
+            fs::remove_file(config.bind_target.authority().unwrap())?;
             info!(
                 "Going to bind/start server on unix socket for: {}",
-                _config.bind_target
+                config.bind_target
             );
-            start_unix_server_impl(&_config.bind_target, new_service).map_err(|e| {
+            start_unix_server_impl(&config.bind_target, new_service).map_err(|e| {
                 io::Error::new(
                     io::ErrorKind::Other,
                     format!("Error configuring unix server: {:?}", e),
@@ -461,9 +526,9 @@ where
         Some("http") => {
             info!(
                 "Going to bind/start server on http path for: 127.0.0.1:{}",
-                _config.bind_target.port().unwrap()
+                config.bind_target.port().unwrap()
             );
-            start_http_server_impl(&_config.bind_target, new_service).map_err(|e| {
+            start_http_server_impl(&config.bind_target, new_service).map_err(|e| {
                 io::Error::new(
                     io::ErrorKind::Other,
                     format!("Error configuring unix server: {:?}", e),
@@ -475,7 +540,7 @@ where
                 io::ErrorKind::InvalidInput,
                 format!(
                     "Invalid bind target {}, didn't understand the scheme",
-                    _config.bind_target
+                    config.bind_target
                 ),
             ))
         }
