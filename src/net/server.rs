@@ -371,7 +371,7 @@ fn put_request(
 ) -> ResponseFuture {
     let file_name = build_file_name(req.uri());
 
-    info!("Uploading {:?} as {:?}", req.uri().path(), file_name);
+    info!("Put request: {:?}", req.uri().path(), file_name);
     let uploader_uri = build_query_uri(&config.upstream(), &req.uri()).unwrap();
 
     let path = req.uri().path().to_string().clone();
