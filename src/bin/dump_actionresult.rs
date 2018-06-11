@@ -72,6 +72,7 @@ fn main() {
     warn!("Blacklisted? : {:?}", blacklisted);
 
     info!("Contents of s: {:?}", s.output_directories);
+    info!("Contents of s: {:?}", s);
 
     // info!("Contents of s: {:?}", s.fields);
 }

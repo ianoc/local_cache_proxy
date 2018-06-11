@@ -39,6 +39,23 @@ pub fn process_action_cache_response(
                 None => (),
             }
         }
+
+        match s.stdout_digest.as_ref() {
+            Some(h) => {
+                let file_name = format!("enable_cas__{}", h.hash);
+                touch(&Path::new(&config.cache_folder).join(&file_name))
+                    .map_err(|e| e.to_string())?;
+            }
+            None => (),
+        }
+        match s.stderr_digest.as_ref() {
+            Some(h) => {
+                let file_name = format!("enable_cas__{}", h.hash);
+                touch(&Path::new(&config.cache_folder).join(&file_name))
+                    .map_err(|e| e.to_string())?;
+            }
+            None => (),
+        }
     }
 
     Ok(())
