@@ -522,6 +522,7 @@ where
     process_existing_action_caches(config.clone());
 
     let (uploader, channel) = ::net::background_uploader::start_uploader(config, &http_client, &s);
+    let terminator = ::net::terminator::start_terminator(config, &s);
 
     let cfg = config.clone();
 
@@ -614,6 +615,12 @@ where
         }
     };
 
-    hyper::rt::run(server_engine.join(uploader).map(|_| ()).map_err(|_| ()));
+    hyper::rt::run(
+        server_engine
+            .join(uploader)
+            .join(terminator)
+            .map(|_| ())
+            .map_err(|_| ()),
+    );
     return Ok(());
 }
