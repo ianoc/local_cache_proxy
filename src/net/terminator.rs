@@ -1,5 +1,4 @@
 use config::AppConfig;
-use futures::stream::Stream;
 use futures::Future;
 use futures::Poll;
 use net::server::State;
@@ -38,6 +37,9 @@ impl Future for Terminator {
     type Error = ();
 
     fn poll(&mut self) -> Poll<(), ()> {
+        let idle_minutes = 30;
+        let idle_duration = Duration::from_millis(1000 * 60 * idle_minutes);
+
         // Receive all messages from peers.
         match &mut self.active_future {
             Some(fut) => match fut.poll() {
@@ -51,12 +53,18 @@ impl Future for Terminator {
         };
         self.active_future = None;
 
-        let time_since_last_req = {
+        let (time_since_last_user_req, time_since_last_background_req) = {
             let s = self.state.lock().unwrap();
-            s.0.elapsed()
+
+            (
+                s.last_background_upload.elapsed(),
+                s.last_user_facing_request.elapsed(),
+            )
         };
         // 30 mins idle time and die
-        if time_since_last_req < Duration::from_millis(1000 * 60 * 30) {
+        if time_since_last_user_req < idle_duration
+            || time_since_last_background_req < idle_duration
+        {
             self.active_future = Some(Box::new(
                 Delay::new(Instant::now() + Duration::from_millis(1000 * 60))
                     .map_err(|e| e.to_string()),

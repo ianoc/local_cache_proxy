@@ -159,7 +159,7 @@ where
 
         let time_since_last_req = {
             let s = self.state.lock().unwrap();
-            s.0.elapsed()
+            s.last_user_facing_request.elapsed()
         };
         if time_since_last_req < Duration::from_millis(1000 * 10) {
             info!("Uploader will not action requests, due to recency of client activity: {:?} seconds ago.", time_since_last_req.as_secs());
@@ -202,6 +202,10 @@ where
         }
 
         if should_upload {
+            {
+                let mut locked = self.state.lock().unwrap();
+                locked.last_background_upload = Instant::now();
+            }
             self.active_future = Some(run_upload_file(
                 self.client.clone(),
                 upload_request.uri,

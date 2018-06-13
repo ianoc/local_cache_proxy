@@ -507,7 +507,10 @@ fn put_request(
     )
 }
 
-pub struct State(pub Instant);
+pub struct State {
+    pub last_user_facing_request: Instant,
+    pub last_background_upload: Instant,
+}
 
 pub fn start_server<C: Connect + 'static>(
     config: &AppConfig,
@@ -517,7 +520,10 @@ pub fn start_server<C: Connect + 'static>(
 where
     C: Connect,
 {
-    let s = Arc::new(Mutex::new(State(Instant::now())));
+    let s = Arc::new(Mutex::new(State {
+        last_user_facing_request: Instant::now(),
+        last_background_upload: Instant::now(),
+    }));
 
     process_existing_action_caches(config.clone());
 
@@ -537,7 +543,7 @@ where
         service_fn(move |req| {
             {
                 let mut locked = state.lock().unwrap();
-                locked.0 = Instant::now();
+                locked.last_user_facing_request = Instant::now();
             }
             Box::new(
                 match req.method() {
