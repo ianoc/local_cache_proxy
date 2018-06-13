@@ -2,8 +2,10 @@ use hyper::Uri as HyperUri;
 
 #[derive(Debug, Clone)]
 pub struct AppConfig {
-    // This contains the
-    pub upstream: HyperUri,
+    // This contains the upstream we fetch from
+    pub primary_upstream: HyperUri,
+    // we will try put to these upstreams too
+    pub secondary_upstreams: Vec<HyperUri>,
     pub proxy: Option<String>,
     pub bind_target: HyperUri,
     pub cache_folder: String,
@@ -13,8 +15,12 @@ pub struct AppConfig {
 }
 
 impl AppConfig {
-    pub fn upstream(&self) -> HyperUri {
-        self.upstream.clone()
+    pub fn primary_upstream(&self) -> HyperUri {
+        self.primary_upstream.clone()
+    }
+
+    pub fn secondary_upstreams(&self) -> Vec<HyperUri> {
+        self.secondary_upstreams.clone()
     }
 
     pub fn proxy(&self) -> Option<String> {

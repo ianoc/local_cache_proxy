@@ -8,7 +8,6 @@ use libc;
 use mio::Ready;
 use mio_uds;
 
-use futures;
 use std::fmt;
 use std::io::{self, Read, Write};
 use std::net::Shutdown;

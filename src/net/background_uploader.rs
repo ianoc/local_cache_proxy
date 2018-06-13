@@ -53,7 +53,7 @@ impl Clone for RequestUpload {
 
 impl RequestUpload {
     pub(super) fn upload(
-        self: Self,
+        self: &Self,
         uri: &Uri,
         path: &String,
         should_upload: Box<Fn() -> bool + Send>,

@@ -1,3 +1,4 @@
+#[macro_use]
 extern crate clap;
 extern crate futures;
 extern crate hyper;
@@ -33,9 +34,9 @@ fn main() {
         .about("Handles managing a local disk cache while forwarding cache misses externally")
         .author("Ian O Connell <ianoc@ianoc.net>")
         .arg(
-            Arg::with_name("upstream")
+            Arg::with_name("primary_upstream")
                 .short("u")
-                .long("upstream-uri")
+                .long("primary-upstream-uri")
                 .value_name("UPSTREAM_URI")
                 .required(true)
                 .help("Upstream URI to use after any proxies, http://...")
@@ -91,11 +92,18 @@ fn main() {
 
     let cfg = AppConfig {
         proxy: proxy.map(|e| e.to_string()),
-        upstream: matches
-            .value_of("upstream")
-            .expect("Should never fail, expecting to see upstream arg")
+        primary_upstream: matches
+            .value_of("primary_upstream")
+            .expect("Should never fail, expecting to see primary upstream arg")
             .parse()
-            .expect("Failed to parse URI for upstream"),
+            .expect("Failed to parse URI for primary upstream"),
+        secondary_upstreams: matches
+            .values_of("secondary_upstreams")
+            .map(|iter| {
+                iter.map(|e| e.parse().expect("Failed to parse secondary URI"))
+                    .collect()
+            })
+            .unwrap_or(vec![]),
         bind_target: matches
             .value_of("bind_target")
             .unwrap_or("http://localhost:10487")

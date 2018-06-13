@@ -12,12 +12,10 @@ use std::fmt;
 use std::io;
 use std::io::ErrorKind as IoErrorKind;
 
-use bytes::Bytes;
 use futures;
 use futures::{future, Future};
 use http::header;
 use http::header::HeaderValue;
-use http::uri::{Parts, PathAndQuery};
 use hyper::client::connect::Connect;
 use hyper::service::NewService;
 use hyper::Server;
@@ -88,7 +86,7 @@ pub enum ServerError {
     StreamingError(futures::sync::mpsc::SendError<Result<hyper::Chunk, std::io::Error>>),
     StringError(String),
     HttpError(::http::Error),
-    InvalidUriBytes(::http::uri::InvalidUriBytes),
+    InvalidUri(::http::uri::InvalidUri),
     InvalidUriParts(::http::uri::InvalidUriParts),
 }
 
@@ -109,7 +107,7 @@ impl StdError for ServerError {
             ServerError::StreamingError(e) => StdError::description(e),
             ServerError::StringError(e) => e,
             ServerError::HttpError(e) => StdError::description(e),
-            ServerError::InvalidUriBytes(e) => StdError::description(e),
+            ServerError::InvalidUri(e) => StdError::description(e),
             ServerError::InvalidUriParts(e) => StdError::description(e),
         }
     }
@@ -138,9 +136,9 @@ impl From<::http::Error> for ServerError {
     }
 }
 
-impl From<::http::uri::InvalidUriBytes> for ServerError {
-    fn from(error: ::http::uri::InvalidUriBytes) -> Self {
-        ServerError::InvalidUriBytes(error)
+impl From<::http::uri::InvalidUri> for ServerError {
+    fn from(error: ::http::uri::InvalidUri) -> Self {
+        ServerError::InvalidUri(error)
     }
 }
 
@@ -164,13 +162,6 @@ fn current_file_size(path: &str) -> Option<u64> {
     match fs::metadata(path) {
         Ok(_meta) => Some(_meta.len()), // file is present
         Err(_e) => None,
-    }
-}
-
-pub fn build_file_name(uri: &HyperUri) -> String {
-    match uri.path() {
-        "/" => "index.html".to_string(),
-        o => o.trim_matches('/').replace('/', "__"),
     }
 }
 
@@ -228,23 +219,6 @@ fn send_file(path: String) -> ResponseFuture {
     Box::new(future::result(res.body(body)).map_err(From::from))
 }
 
-fn build_query_uri(upstream_uri: &HyperUri, query_uri: &HyperUri) -> Result<HyperUri, ServerError> {
-    let updated_path_query = match (upstream_uri.path_and_query(), query_uri.path_and_query()) {
-        (Some(upstream_path_and_query), Some(path_and_query_ref)) => PathAndQuery::from_shared(
-            Bytes::from(upstream_path_and_query.path().to_owned() + path_and_query_ref.path()),
-        ).map(|e| Some(e)),
-
-        (None, Some(path_and_query_ref)) => Ok(Some(path_and_query_ref.clone())),
-        (_, None) => Ok(None),
-    };
-
-    updated_path_query.map_err(From::from).and_then(move |e| {
-        let mut parts = Parts::from(upstream_uri.clone());
-        parts.path_and_query = e;
-        HyperUri::from_parts(parts).map_err(From::from)
-    })
-}
-
 fn duration_to_float_seconds(d: Duration) -> f64 {
     let f: f64 = d.subsec_nanos() as f64 / 1_000_000_000_0.0;
     f + d.as_secs() as f64
@@ -258,7 +232,10 @@ fn get_request<C: Connect + 'static>(
     config: &AppConfig,
 ) -> ResponseFuture {
     info!("Start Get request to {:?}", req.uri());
-    let file_name = build_file_name(req.uri());
+    let proxy_request = ProxyRequest::new(req.uri());
+
+    let file_name = proxy_request.file_name();
+
     let data_source_path = Path::new(&config.cache_folder).join(&file_name);
     let downloader = downloader.clone();
     let http_client = http_client.clone();
@@ -285,81 +262,170 @@ fn get_request<C: Connect + 'static>(
     }
 
     Box::new(
-        futures::done(build_query_uri(&config.upstream(), &req.uri())).and_then(move |query_uri| {
-            let downloaded_file_future: Box<
-                Future<Item = Option<u64>, Error = ServerError> + Send,
-            > = match current_file_size(data_source_path.to_str().unwrap()) {
-                None => Box::new(
-                    downloader
-                        .fetch_file(&http_client, &query_uri, &file_name)
-                        .map_err(From::from),
-                ),
-                Some(len) => Box::new(futures::future::ok(Some(len))),
-            };
+        futures::done(proxy_request.build_query_uri(&config.primary_upstream())).and_then(
+            move |query_uri| {
+                let downloaded_file_future: Box<
+                    Future<Item = Option<u64>, Error = ServerError> + Send,
+                > = match current_file_size(data_source_path.to_str().unwrap()) {
+                    None => Box::new(
+                        downloader
+                            .fetch_file(&http_client, &query_uri, &file_name)
+                            .map_err(From::from),
+                    ),
+                    Some(len) => Box::new(futures::future::ok(Some(len))),
+                };
 
-            let req_uri_string = query_uri.clone();
+                let req_uri_string = query_uri.clone();
 
-            let downloaded_fut = downloaded_file_future
-                .and_then(move |file_path| {
-                    // info!("Get request issued to : {} --> {:?}", req.uri(), file_path);
-                    match file_path {
-                        Some(file_len) => {
-                            if instant.elapsed().as_secs() >= 2 {
-                                info!(
-                                    "[{:?}] took: {} seconds at {} MB/sec",
-                                    path,
-                                    duration_to_float_seconds(instant.elapsed()),
-                                    (file_len as f64 / 1_000_000 as f64)
-                                        / duration_to_float_seconds(instant.elapsed())
-                                );
+                let downloaded_fut = downloaded_file_future
+                    .and_then(move |file_path| {
+                        // info!("Get request issued to : {} --> {:?}", req.uri(), file_path);
+                        match file_path {
+                            Some(file_len) => {
+                                if instant.elapsed().as_secs() >= 2 {
+                                    info!(
+                                        "[{:?}] took: {} seconds at {} MB/sec",
+                                        path,
+                                        duration_to_float_seconds(instant.elapsed()),
+                                        (file_len as f64 / 1_000_000 as f64)
+                                            / duration_to_float_seconds(instant.elapsed())
+                                    );
+                                }
+                                if req.uri().path().starts_with("/ac/") {
+                                    process_action_cache_response(cfg, &file_name)
+                                        .map_err(|e| {
+                                            warn!(
+                                                "Failed to process action cache with: {:?} -- {:?}",
+                                                e,
+                                                data_source_path.to_str().unwrap().to_string()
+                                            );
+                                            ()
+                                        })
+                                        .unwrap_or(());
+                                }
+                                send_file(data_source_path.to_str().unwrap().to_string())
                             }
-                            if req.uri().path().starts_with("/ac/") {
-                                process_action_cache_response(cfg, &file_name)
-                                    .map_err(|e| {
-                                        warn!(
-                                            "Failed to process action cache with: {:?} -- {:?}",
-                                            e,
-                                            data_source_path.to_str().unwrap().to_string()
-                                        );
-                                        ()
-                                    })
-                                    .unwrap_or(());
-                            }
-                            send_file(data_source_path.to_str().unwrap().to_string())
-                        }
 
-                        None => {
-                            // info!(
-                            //    "[{:?}] took: {} seconds at inf MB/sec",
-                            //    path,
-                            //    duration_to_float_seconds(instant.elapsed())
-                            // );
-                            // We decided not to download the file, so 404 it!
-                            let mut res = Response::new(Body::empty());
-                            *res.status_mut() = StatusCode::NOT_FOUND;
-                            Box::new(futures::future::ok(res))
+                            None => {
+                                // info!(
+                                //    "[{:?}] took: {} seconds at inf MB/sec",
+                                //    path,
+                                //    duration_to_float_seconds(instant.elapsed())
+                                // );
+                                // We decided not to download the file, so 404 it!
+                                let mut res = Response::new(Body::empty());
+                                *res.status_mut() = StatusCode::NOT_FOUND;
+                                Box::new(futures::future::ok(res))
+                            }
                         }
-                    }
-                })
-                .or_else(move |o| {
-                    warn!(
-                        "Error: {:?} after {} seconds",
-                        o,
-                        instant.elapsed().as_secs()
-                    );
-                    let e: ResponseFuture = Box::new(futures::future::ok({
-                        let mut res = Response::new(
-                            format!("Requested uri: {:?}\n{:?}", req_uri_string, o).into(),
+                    })
+                    .or_else(move |o| {
+                        warn!(
+                            "Error: {:?} after {} seconds",
+                            o,
+                            instant.elapsed().as_secs()
                         );
-                        *res.status_mut() = StatusCode::INTERNAL_SERVER_ERROR;
-                        res
-                    }));
-                    e
-                });
+                        let e: ResponseFuture = Box::new(futures::future::ok({
+                            let mut res = Response::new(
+                                format!("Requested uri: {:?}\n{:?}", req_uri_string, o).into(),
+                            );
+                            *res.status_mut() = StatusCode::INTERNAL_SERVER_ERROR;
+                            res
+                        }));
+                        e
+                    });
 
-            downloaded_fut
-        }),
+                downloaded_fut
+            },
+        ),
     )
+}
+
+fn upstream_upload(
+    uploader: &RequestUpload,
+    upstream_uri: &HyperUri,
+    request: &ProxyRequest,
+    upload_path: &String,
+    cache_folder: String,
+    file_name: String,
+) {
+    let uploader_uri = request.build_query_uri(upstream_uri).unwrap();
+
+    uploader
+        .upload(
+            &uploader_uri,
+            upload_path,
+            Box::new(move || {
+                if file_name.starts_with("cas__") {
+                    match current_file_size(&format!("{}/enable_{}", cache_folder, file_name)) {
+                        None => false,
+                        Some(_) => true,
+                    }
+                } else {
+                    true
+                }
+            }),
+        )
+        .map_err(|e| {
+            warn!("Failed to trigger uploader!: {:?}", e);
+            ()
+        })
+        .unwrap();
+}
+
+struct ProxyRequest {
+    pub repo: String,
+    pub tpe: String, // ac or cas
+    pub digest: String,
+}
+impl ProxyRequest {
+    pub fn file_name(self: &Self) -> String {
+        format!("{}__{}", self.tpe, self.digest).to_string()
+    }
+    pub fn build_query_uri(self: &Self, upstream_uri: &HyperUri) -> Result<HyperUri, ServerError> {
+        let upstream_str = format!("{}", upstream_uri)
+            .trim_right_matches('/')
+            .to_string();
+        format!(
+            "{}/{}/repo={}/{}",
+            upstream_str, self.tpe, self.repo, self.digest
+        ).parse()
+            .map_err(From::from)
+    }
+
+    pub fn new(uri: &HyperUri) -> ProxyRequest {
+        let path: &str = uri.path().trim_matches('/');
+        let elements: Vec<&str> = path.split('/').collect();
+        if path.starts_with("/repo=") {
+            let repo_name: &str = {
+                let parts: Vec<&str> = elements[0].split('=').collect();
+                parts[1]
+            };
+            ProxyRequest {
+                repo: repo_name.to_string(),
+                tpe: elements[1].to_string(),
+                digest: elements[2].to_string(),
+            }
+        } else if elements.len() == 2 && (elements[0] == "ac" || elements[0] == "cas") {
+            ProxyRequest {
+                repo: "unknown".to_string(),
+                tpe: elements[0].to_string(),
+                digest: elements[1].to_string(),
+            }
+        } else if path == "/" {
+            ProxyRequest {
+                repo: "unknown".to_string(),
+                tpe: "unknown".to_string(),
+                digest: "index.html".to_string(),
+            }
+        } else {
+            ProxyRequest {
+                repo: "unknown".to_string(),
+                tpe: "unknown".to_string(),
+                digest: path.replace('/', "__"),
+            }
+        }
+    }
 }
 
 fn put_request(
@@ -369,12 +435,16 @@ fn put_request(
     config: &AppConfig,
     request_upload: &RequestUpload,
 ) -> ResponseFuture {
-    let file_name = build_file_name(req.uri());
+    let proxy_request = ProxyRequest::new(req.uri());
+    let file_name = proxy_request.file_name();
 
     info!("Put request: {:?}", req.uri().path());
-    let uploader_uri = build_query_uri(&config.upstream(), &req.uri()).unwrap();
+
+    let upstream_uri = config.primary_upstream();
+    let secondary_upstreams = config.secondary_upstreams();
 
     let path = req.uri().path().to_string().clone();
+
     let upload_path = Path::new(&config.cache_folder)
         .join(&file_name)
         .to_str()
@@ -397,29 +467,25 @@ fn put_request(
                                 ()
                             })
                             .unwrap_or(());
-                        uploader
-                            .upload(
-                                &uploader_uri,
+
+                        upstream_upload(
+                            &uploader,
+                            &upstream_uri,
+                            &proxy_request,
+                            &upload_path,
+                            cache_folder.clone(),
+                            file_name.clone(),
+                        );
+                        for u in secondary_upstreams.iter() {
+                            upstream_upload(
+                                &uploader,
+                                &u,
+                                &proxy_request,
                                 &upload_path,
-                                Box::new(move || {
-                                    if file_name.starts_with("cas__") {
-                                        match current_file_size(&format!(
-                                            "{}/enable_{}",
-                                            cache_folder, file_name
-                                        )) {
-                                            None => false,
-                                            Some(_) => true,
-                                        }
-                                    } else {
-                                        true
-                                    }
-                                }),
-                            )
-                            .map_err(|e| {
-                                warn!("Failed to trigger uploader!: {:?}", e);
-                                ()
-                            })
-                            .unwrap();
+                                cache_folder.clone(),
+                                file_name.clone(),
+                            );
+                        }
                         ()
                     }
                     None => (),
