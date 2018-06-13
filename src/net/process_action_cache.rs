@@ -3,9 +3,11 @@ use protobuf::{CodedInputStream, Message}; //, ProtobufResult, RepeatedField};
 use std::io::BufReader;
 // use std::io::{self, stdin, BufRead, BufReader};
 use action_result::ActionResult;
+use std::fs;
 use std::fs::{File, OpenOptions};
 use std::io;
 use std::path::Path;
+use std::thread;
 
 //from https://doc.rust-lang.org/stable/rust-by-example/std_misc/fs.html
 fn touch(path: &Path) -> io::Result<()> {
@@ -15,8 +17,20 @@ fn touch(path: &Path) -> io::Result<()> {
     }
 }
 
+pub fn process_existing_action_caches(config: AppConfig) {
+    thread::spawn(move || {
+        let paths = fs::read_dir(&config.cache_folder).unwrap();
+
+        for p in paths {
+            for pe in p.iter() {
+                process_action_cache_response(&config, &pe.file_name().into_string().unwrap())
+                    .unwrap_or(());
+            }
+        }
+    });
+}
 pub fn process_action_cache_response(
-    config: AppConfig,
+    config: &AppConfig,
     downloaded_file: &String,
 ) -> Result<(), String> {
     if downloaded_file.starts_with("ac__") {

@@ -23,7 +23,7 @@ use hyper::Uri as HyperUri;
 use hyper::{Body, Method, Request, Response, StatusCode};
 use net::background_uploader::RequestUpload;
 use net::downloader::Downloader;
-use net::process_action_cache::process_action_cache_response;
+use net::process_action_cache::{process_action_cache_response, process_existing_action_caches};
 use std;
 use std::fs;
 use std::path::Path;
@@ -292,7 +292,7 @@ fn get_request<C: Connect + 'static>(
                                     );
                                 }
                                 if req.uri().path().starts_with("/ac/") {
-                                    process_action_cache_response(cfg, &file_name)
+                                    process_action_cache_response(&cfg, &file_name)
                                         .map_err(|e| {
                                             warn!(
                                                 "Failed to process action cache with: {:?} -- {:?}",
@@ -396,7 +396,7 @@ impl ProxyRequest {
     pub fn new(uri: &HyperUri) -> ProxyRequest {
         let path: &str = uri.path().trim_matches('/');
         let elements: Vec<&str> = path.split('/').collect();
-        if path.starts_with("/repo=") {
+        if path.starts_with("repo=") {
             let repo_name: &str = {
                 let parts: Vec<&str> = elements[0].split('=').collect();
                 parts[1]
@@ -461,7 +461,7 @@ fn put_request(
             .map(move |_file| {
                 match _file {
                     Some(_f) => {
-                        process_action_cache_response(processor_config, &_f)
+                        process_action_cache_response(&processor_config, &_f)
                             .map_err(|e| {
                                 warn!("Failed to process action cache with: {:?} for {:?}", e, _f);
                                 ()
@@ -518,6 +518,8 @@ where
     C: Connect,
 {
     let s = Arc::new(Mutex::new(State(Instant::now())));
+
+    process_existing_action_caches(config.clone());
 
     let (uploader, channel) = ::net::background_uploader::start_uploader(config, &http_client, &s);
 
