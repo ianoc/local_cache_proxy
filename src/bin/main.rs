@@ -1,4 +1,3 @@
-#[macro_use]
 extern crate clap;
 extern crate futures;
 extern crate hyper;
@@ -86,6 +85,13 @@ fn main() {
                 .help("Max size allowed for remote downloads")
                 .takes_value(true),
         )
+        .arg(
+            Arg::with_name("idle_time_terminate")
+                .long("idle-time-terminate")
+                .value_name("IDLE_TIME_IN_MS")
+                .help("MS to keep the server active when idle")
+                .takes_value(true),
+        )
         .get_matches();
 
     let proxy: Option<&str> = matches.value_of("proxy");
@@ -131,6 +137,9 @@ fn main() {
             .unwrap_or("10485760")
             .parse()
             .unwrap(),
+        idle_time_terminate: AppConfig::str_to_ms(
+            matches.value_of("idle_time_terminate").unwrap_or("600000"), // 10 minute default
+        ).unwrap(),
     };
 
     info!("setting up bazel cache folder in : {:?}", cfg.cache_folder);

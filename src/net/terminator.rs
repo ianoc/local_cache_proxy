@@ -37,8 +37,7 @@ impl Future for Terminator {
     type Error = ();
 
     fn poll(&mut self) -> Poll<(), ()> {
-        let idle_minutes = 30;
-        let idle_duration = Duration::from_millis(1000 * 60 * idle_minutes);
+        let idle_duration = self.config.idle_time_terminate;
 
         // Receive all messages from peers.
         match &mut self.active_future {
