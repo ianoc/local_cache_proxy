@@ -16,22 +16,20 @@ const UNIX_SCHEME: &str = "unix";
 /// for unix domain sockets
 ///
 /// `UnixConnector` instances assume uri's
-/// constructued with `hyperlocal::Uri::new()` which produce uris with a `unix://`
+/// constructued with `local_cache_proxy::Uri::new()` which produce uris with a `unix://`
 /// scheme
 ///
 /// # examples
 ///
 /// ```no_run
 /// extern crate hyper;
-/// extern crate hyperlocal;
-/// extern crate tokio_core;
+/// extern crate local_cache_proxy;
 ///
-/// let core = tokio_core::reactor::Core::new().unwrap();
-/// let client = hyper::Client::configure()
-///    .connector(
-///      hyperlocal::UnixConnector::new(core.handle())
-///    )
-///    .build(&core.handle());
+/// use hyper::Client;
+/// use hyper::Body;
+///    let http_client = Client::builder()
+///                .keep_alive(false)
+///      .build::<_, Body>(local_cache_proxy::unix_socket::unix_connector::UnixConnector::new());
 /// ```
 pub struct UnixConnector();
 

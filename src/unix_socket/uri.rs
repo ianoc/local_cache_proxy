@@ -12,18 +12,18 @@ use hyper::Uri as HyperUri;
 /// and for creating requests
 ///
 /// ```no_run
+/// extern crate local_cache_proxy;
+/// extern crate http;
 /// extern crate hyper;
-/// extern crate hyperlocal;
 ///
-/// let url = hyperlocal::Uri::new(
+/// use hyper::Uri;
+/// use hyper::Request;
+///
+/// let url: Uri = local_cache_proxy::unix_socket::Uri::new(
 ///   "/path/to/socket", "/urlpath?key=value"
-///  );
-///  let req: hyper::Request<hyper::Body> =
-///    hyper::Request::new(
-///      hyper::Get,
-///      url.into()
-///    );
-/// ```
+///  ).into();
+/// let req = Request::get(url);
+///
 #[derive(Debug)]
 pub struct Uri<'a> {
     /// url path including leading slash, path, and query string
