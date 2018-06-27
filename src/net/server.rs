@@ -235,13 +235,16 @@ fn get_request<C: Connect + 'static>(
     let proxy_request = ProxyRequest::new(req.uri());
 
     let file_name = proxy_request.file_name();
+    let file_name2 = file_name.clone();
 
     let data_source_path = Path::new(&config.cache_folder).join(&file_name);
+    let data_source_path2 = data_source_path.clone();
     let downloader = downloader.clone();
     let http_client = http_client.clone();
     let path = req.uri().path().to_string().clone();
 
     let cfg = config.clone();
+    let cfg2 = config.clone();
 
     if file_name.starts_with("cas__") {
         let gate_file = current_file_size(&format!("{}/enable_{}", config.cache_folder, file_name));
@@ -270,6 +273,19 @@ fn get_request<C: Connect + 'static>(
                     None => Box::new(
                         downloader
                             .fetch_file(&http_client, &query_uri, &file_name)
+                            .map(move |len| {
+                                process_action_cache_response(&cfg2, &file_name2)
+                                    .map_err(|e| {
+                                        warn!(
+                                            "Failed to process action cache with: {:?} -- {:?}",
+                                            e,
+                                            data_source_path2.to_str().unwrap().to_string()
+                                        );
+                                        ()
+                                    })
+                                    .unwrap_or(());
+                                    len
+                            })
                             .map_err(From::from),
                     ),
                     Some(len) => Box::new(futures::future::ok(Some(len))),
@@ -290,18 +306,6 @@ fn get_request<C: Connect + 'static>(
                                         (file_len as f64 / 1_000_000 as f64)
                                             / duration_to_float_seconds(instant.elapsed())
                                     );
-                                }
-                                if req.uri().path().starts_with("/ac/") {
-                                    process_action_cache_response(&cfg, &file_name)
-                                        .map_err(|e| {
-                                            warn!(
-                                                "Failed to process action cache with: {:?} -- {:?}",
-                                                e,
-                                                data_source_path.to_str().unwrap().to_string()
-                                            );
-                                            ()
-                                        })
-                                        .unwrap_or(());
                                 }
                                 send_file(data_source_path.to_str().unwrap().to_string())
                             }
