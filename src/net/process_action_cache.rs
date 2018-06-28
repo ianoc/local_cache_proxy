@@ -35,7 +35,10 @@ pub fn process_action_cache_response(
 ) -> Result<(), String> {
     if downloaded_file.starts_with("ac__") {
         let data_source_path = Path::new(&config.cache_folder).join(downloaded_file);
-        info!("Processing for action cache entries: {:?}", data_source_path);
+        info!(
+            "Processing for action cache entries: {:?}",
+            data_source_path
+        );
 
         let mut s = ActionResult::new();
 
@@ -48,11 +51,10 @@ pub fn process_action_cache_response(
             match f.digest.as_ref() {
                 Some(h) => {
                     let file_name = format!("enable_cas__{}", h.hash);
-                    touch(&Path::new(&config.cache_folder).join(&file_name))
-                        .map_err(|e| {
-                            warn!("{:?}", e);
-                            e.to_string()
-                        })?;
+                    touch(&Path::new(&config.cache_folder).join(&file_name)).map_err(|e| {
+                        warn!("{:?}", e);
+                        e.to_string()
+                    })?;
                 }
                 None => (),
             }

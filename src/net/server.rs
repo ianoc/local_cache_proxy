@@ -243,7 +243,6 @@ fn get_request<C: Connect + 'static>(
     let http_client = http_client.clone();
     let path = req.uri().path().to_string().clone();
 
-    let cfg = config.clone();
     let cfg2 = config.clone();
 
     if file_name.starts_with("cas__") {
@@ -274,17 +273,22 @@ fn get_request<C: Connect + 'static>(
                         downloader
                             .fetch_file(&http_client, &query_uri, &file_name)
                             .map(move |len| {
-                                process_action_cache_response(&cfg2, &file_name2)
-                                    .map_err(|e| {
-                                        warn!(
-                                            "Failed to process action cache with: {:?} -- {:?}",
+                                match len {
+                                    Some(_) => {
+                                        process_action_cache_response(&cfg2, &file_name2)
+                                            .map_err(|e| {
+                                                warn!(
+                                            "[Get]Failed to process action cache with: {:?} -- {:?}",
                                             e,
                                             data_source_path2.to_str().unwrap().to_string()
                                         );
-                                        ()
-                                    })
-                                    .unwrap_or(());
-                                    len
+                                                ()
+                                            })
+                                            .unwrap_or(());
+                                    }
+                                    None => {}
+                                }
+                                len
                             })
                             .map_err(From::from),
                     ),
@@ -467,7 +471,10 @@ fn put_request(
                     Some(_f) => {
                         process_action_cache_response(&processor_config, &_f)
                             .map_err(|e| {
-                                warn!("Failed to process action cache with: {:?} for {:?}", e, _f);
+                                warn!(
+                                    "[Put]Failed to process action cache with: {:?} for {:?}",
+                                    e, _f
+                                );
                                 ()
                             })
                             .unwrap_or(());
