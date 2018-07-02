@@ -17,8 +17,6 @@ use std::env;
 extern crate log;
 use local_cache_proxy::unix_socket::uri::Uri as HyperlocalUri;
 
-// use std::{thread, time};
-
 use hyper::client::HttpConnector;
 use local_cache_proxy::config::AppConfig;
 use local_cache_proxy::net::Downloader;
@@ -137,9 +135,11 @@ fn main() {
             .unwrap_or("10485760")
             .parse()
             .unwrap(),
-        idle_time_terminate: AppConfig::str_to_ms(
-            matches.value_of("idle_time_terminate").unwrap_or("600000"), // 10 minute default
-        ).unwrap(),
+        idle_time_terminate: Some(
+            AppConfig::str_to_ms(
+                matches.value_of("idle_time_terminate").unwrap_or("600000"), // 10 minute default
+            ).unwrap(),
+        ),
     };
 
     info!("setting up bazel cache folder in : {:?}", cfg.cache_folder);
@@ -155,12 +155,14 @@ fn main() {
                 .keep_alive(false)
                 .build::<_, Body>(connector);
             let downloader = Downloader::new(&cfg).unwrap();
-            local_cache_proxy::net::start_server(&cfg, downloader, http_client).unwrap();
+            local_cache_proxy::net::start_client_proxy_server(&cfg, downloader, http_client)
+                .unwrap();
         }
         None => {
             let http_client = Client::builder().build::<_, Body>(HttpConnector::new(4));
             let downloader = Downloader::new(&cfg).unwrap();
-            local_cache_proxy::net::start_server(&cfg, downloader, http_client).unwrap();
+            local_cache_proxy::net::start_client_proxy_server(&cfg, downloader, http_client)
+                .unwrap();
         }
     };
 }

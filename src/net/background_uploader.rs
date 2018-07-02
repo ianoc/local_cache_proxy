@@ -10,7 +10,7 @@ use http::Uri;
 use hyper::client::connect::Connect;
 use hyper::Client;
 use net::buffered_send_stream;
-use net::server::State;
+use net::State;
 use std::io::ErrorKind as IoErrorKind;
 use std::sync::Arc;
 use std::sync::Mutex;

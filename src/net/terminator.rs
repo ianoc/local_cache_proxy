@@ -1,7 +1,7 @@
 use config::AppConfig;
 use futures::Future;
 use futures::Poll;
-use net::server::State;
+use net::State;
 use std::process;
 use std::sync::Arc;
 use std::sync::Mutex;
@@ -37,7 +37,10 @@ impl Future for Terminator {
     type Error = ();
 
     fn poll(&mut self) -> Poll<(), ()> {
-        let idle_duration = self.config.idle_time_terminate;
+        let idle_duration = match self.config.idle_time_terminate {
+            Some(i) => i,
+            None => panic!("Should never launch a terminator when no idle timeout"),
+        };
 
         // Receive all messages from peers.
         match &mut self.active_future {

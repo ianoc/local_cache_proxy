@@ -14,7 +14,7 @@ pub struct AppConfig {
     pub cache_folder_size: u64,
     pub maximum_download_size: u64,
     pub maximum_upload_size: u64,
-    pub idle_time_terminate: Duration,
+    pub idle_time_terminate: Option<Duration>,
 }
 
 impl AppConfig {

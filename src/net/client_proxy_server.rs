@@ -1,14 +1,14 @@
 use net::buffered_send_stream;
+use net::server_error::ServerError;
+use net::state::State;
 use std::time::Duration;
 
 use hyper::Client;
-use std::error::Error as StdError;
 
 use config::AppConfig;
 use hyper;
 use hyper::body::Payload;
 use hyper::service::service_fn;
-use std::fmt;
 use std::io;
 use std::io::ErrorKind as IoErrorKind;
 
@@ -24,7 +24,7 @@ use hyper::{Body, Method, Request, Response, StatusCode};
 use net::background_uploader::RequestUpload;
 use net::downloader::Downloader;
 use net::process_action_cache::{process_action_cache_response, process_existing_action_caches};
-use std;
+use std::error::Error;
 use std::fs;
 use std::path::Path;
 use std::result::Result;
@@ -77,83 +77,6 @@ where
     // hyper::rt::run(server);
 
     Ok(Box::new(server))
-}
-
-#[derive(Debug)]
-pub enum ServerError {
-    IoError(std::io::Error),
-    HyperError(::hyper::Error),
-    StreamingError(futures::sync::mpsc::SendError<Result<hyper::Chunk, std::io::Error>>),
-    StringError(String),
-    HttpError(::http::Error),
-    InvalidUri(::http::uri::InvalidUri),
-    InvalidUriParts(::http::uri::InvalidUriParts),
-}
-
-impl fmt::Display for ServerError {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        f.write_str(self.description())
-    }
-}
-
-impl StdError for ServerError {
-    fn description(&self) -> &str {
-        match self {
-            ServerError::IoError(e) => {
-                error!("errr:: {:?}", e);
-                StdError::description(e)
-            }
-            ServerError::HyperError(e) => StdError::description(e),
-            ServerError::StreamingError(e) => StdError::description(e),
-            ServerError::StringError(e) => e,
-            ServerError::HttpError(e) => StdError::description(e),
-            ServerError::InvalidUri(e) => StdError::description(e),
-            ServerError::InvalidUriParts(e) => StdError::description(e),
-        }
-    }
-}
-impl From<std::io::Error> for ServerError {
-    fn from(error: std::io::Error) -> Self {
-        ServerError::IoError(error)
-    }
-}
-
-impl From<::hyper::Error> for ServerError {
-    fn from(error: ::hyper::Error) -> Self {
-        ServerError::HyperError(error)
-    }
-}
-
-impl From<String> for ServerError {
-    fn from(error: String) -> Self {
-        ServerError::StringError(error)
-    }
-}
-
-impl From<::http::Error> for ServerError {
-    fn from(error: ::http::Error) -> Self {
-        ServerError::HttpError(error)
-    }
-}
-
-impl From<::http::uri::InvalidUri> for ServerError {
-    fn from(error: ::http::uri::InvalidUri) -> Self {
-        ServerError::InvalidUri(error)
-    }
-}
-
-impl From<::http::uri::InvalidUriParts> for ServerError {
-    fn from(error: ::http::uri::InvalidUriParts) -> Self {
-        ServerError::InvalidUriParts(error)
-    }
-}
-
-impl std::convert::From<futures::sync::mpsc::SendError<Result<hyper::Chunk, std::io::Error>>>
-    for ServerError
-{
-    fn from(error: futures::sync::mpsc::SendError<Result<hyper::Chunk, std::io::Error>>) -> Self {
-        ServerError::StreamingError(error)
-    }
 }
 
 type ResponseFuture = Box<Future<Item = Response<Body>, Error = ServerError> + Send>;
@@ -516,11 +439,6 @@ fn put_request(
                 From::from(e)
             }),
     )
-}
-
-pub struct State {
-    pub last_user_facing_request: Instant,
-    pub last_background_upload: Instant,
 }
 
 pub fn start_server<C: Connect + 'static>(

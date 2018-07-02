@@ -2,7 +2,7 @@ use futures::Poll;
 use futures::Stream;
 use hyper::Body;
 use hyper::Chunk;
-use net::server::ServerError;
+use net::ServerError;
 use std::io::Error;
 
 use futures::sync::mpsc::SendError;
