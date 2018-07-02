@@ -10,6 +10,7 @@ impl ProxyRequest {
     pub fn file_name(self: &Self) -> String {
         format!("{}__{}", self.tpe, self.digest).to_string()
     }
+
     pub fn build_query_uri(self: &Self, upstream_uri: &HyperUri) -> Result<HyperUri, ServerError> {
         let upstream_str = format!("{}", upstream_uri)
             .trim_right_matches('/')

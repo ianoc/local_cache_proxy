@@ -3,6 +3,21 @@ use std;
 use std::time::Duration;
 
 #[derive(Debug, Clone)]
+pub struct S3Config {
+    pub bucket: String,
+    pub prefix: String,
+}
+
+impl S3Config {
+    pub fn bucket(&self) -> String {
+        self.bucket.clone()
+    }
+    pub fn prefix(&self) -> String {
+        self.prefix.clone()
+    }
+}
+
+#[derive(Debug, Clone)]
 pub struct AppConfig {
     // This contains the upstream we fetch from
     pub upstream: HyperUri,

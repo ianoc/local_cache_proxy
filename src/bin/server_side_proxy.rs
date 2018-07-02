@@ -5,23 +5,21 @@ extern crate hyper_proxy;
 extern crate local_cache_proxy;
 extern crate lru_disk_cache;
 extern crate pretty_env_logger;
+extern crate rusoto_core;
+extern crate rusoto_s3;
 extern crate tokio;
 extern crate tokio_core;
 extern crate tokio_uds;
 
 use clap::{App, Arg};
-use hyper::Body;
-use hyper::Client;
+use local_cache_proxy::config::S3Config;
 use std::env;
 #[macro_use]
 extern crate log;
-use local_cache_proxy::unix_socket::uri::Uri as HyperlocalUri;
 
-use hyper::client::HttpConnector;
 use local_cache_proxy::config::AppConfig;
-use local_cache_proxy::net::Downloader;
-use local_cache_proxy::net::ProxyConnector;
-use local_cache_proxy::unix_socket::unix_connector::UnixConnector;
+use rusoto_core::Region;
+use rusoto_s3::{S3, S3Client};
 
 // The goal of this proxy is to act as an upstream of the client side proxy
 // over time this will likely move from being http based to something like proto
@@ -73,11 +71,21 @@ fn main() {
         )
         .get_matches();
 
+    let s3_config = S3Config {
+        bucket: matches
+            .value_of("s3_bucket")
+            .expect("Should never fail, expecting a bucket")
+            .to_string(),
+        prefix: matches
+            .value_of("s3_prefix")
+            .expect("Should never fail, expecting a prefix")
+            .trim_matches('/')
+            .to_string(),
+    };
+
     let cfg = AppConfig {
         proxy: None,
-        upstream: matches
-            .value_of("primary_upstream")
-            .expect("Should never fail, expecting to see primary upstream arg")
+        upstream: "http://local:123"
             .parse()
             .expect("Failed to parse URI for primary upstream"),
         bind_target: format!(
@@ -112,25 +120,10 @@ fn main() {
         idle_time_terminate: None,
     };
 
-    // info!("setting up bazel cache folder in : {:?}", cfg.cache_folder);
-    // info!("Cache folder size in : {:?}", cfg.cache_folder_size);
+    info!("setting up bazel cache folder in : {:?}", cfg.cache_folder);
+    info!("Cache folder size in : {:?}", cfg.cache_folder_size);
 
-    // match proxy {
-    //     Some(e) => {
-    //         let proxy_uri = HyperlocalUri::new(e, "/").into();
-    //         let connector = ProxyConnector::new(UnixConnector::new(), proxy_uri).unwrap();
-    //         // The no keep alive here is super important when using a unix socket proxy
-    //         // this will cause hyper to hang trying to share the connection!
-    //         let http_client = Client::builder()
-    //             .keep_alive(false)
-    //             .build::<_, Body>(connector);
-    //         let downloader = Downloader::new(&cfg).unwrap();
-    //         local_cache_proxy::net::start_server(&cfg, downloader, http_client).unwrap();
-    //     }
-    //     None => {
-    //         let http_client = Client::builder().build::<_, Body>(HttpConnector::new(4));
-    //         let downloader = Downloader::new(&cfg).unwrap();
-    //         local_cache_proxy::net::start_server(&cfg, downloader, http_client).unwrap();
-    //     }
-    // };
+    let client = S3Client::simple(Region::UsWest2);
+
+    local_cache_proxy::net::start_remote_cache_server(&cfg, &s3_config, client).unwrap();
 }

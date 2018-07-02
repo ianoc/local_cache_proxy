@@ -19,6 +19,8 @@ extern crate mio_uds;
 extern crate pretty_env_logger;
 extern crate protobuf;
 extern crate rand;
+extern crate rusoto_core;
+extern crate rusoto_s3;
 extern crate tokio;
 extern crate tokio_core;
 extern crate tokio_io;

@@ -15,13 +15,12 @@ extern crate tokio_uds;
 use clap::{App, Arg};
 use futures::Future;
 use futures::Stream;
-use rusoto_s3::GetObjectRequest;
-use rusoto_s3::PutObjectRequest;
 use std::io::Read;
 use std::io::Write;
 
 use rusoto_core::Region;
-
+use rusoto_s3::GetObjectRequest;
+use rusoto_s3::PutObjectRequest;
 use rusoto_s3::{S3, S3Client};
 
 #[macro_use]
