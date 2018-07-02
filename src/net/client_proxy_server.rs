@@ -1,5 +1,10 @@
-use net::buffered_send_stream;
+use net::proxy_request::ProxyRequest;
 use net::server_error::ServerError;
+use net::server_io::empty_with_status_code;
+use net::server_io::empty_with_status_code_fut;
+use net::server_io::send_file;
+use net::server_start::start_http_server_impl;
+use net::server_start::start_unix_server_impl;
 use net::state::State;
 use std::time::Duration;
 
@@ -10,12 +15,9 @@ use hyper;
 use hyper::body::Payload;
 use hyper::service::service_fn;
 use std::io;
-use std::io::ErrorKind as IoErrorKind;
 
 use futures;
-use futures::{future, Future};
-use http::header;
-use http::header::HeaderValue;
+use futures::Future;
 use hyper::client::connect::Connect;
 use hyper::service::NewService;
 use hyper::Server;
@@ -32,53 +34,6 @@ use std::sync::Arc;
 use std::sync::Mutex;
 use std::time::Instant;
 
-fn start_unix_server_impl<S, Bd>(
-    _bind_target: &hyper::Uri,
-    _s: S,
-) -> Result<Box<Future<Item = (), Error = ()> + Send>, ServerError>
-where
-    S: Sync,
-    S: NewService<ReqBody = Body, ResBody = Bd> + Send + 'static,
-    S::Error: Into<Box<::std::error::Error + Send + Sync>>,
-    S::Service: Send,
-    S::Error: Into<Box<::std::error::Error + Send + Sync>>,
-    <S as ::hyper::service::NewService>::Future: Send,
-    <S::Service as ::hyper::service::Service>::Future: Send + 'static,
-    Bd: Payload,
-{
-    unimplemented!()
-    // let bind_path = bind_target.authority().unwrap();
-    // let svr = hyperlocal::server::Http::new().bind(bind_path, s)?;
-    // svr.run()?;
-    // Ok(())
-}
-
-fn start_http_server_impl<S, Bd>(
-    bind_target: &hyper::Uri,
-    s: S,
-) -> Result<Box<Future<Item = (), Error = ()> + Send>, ServerError>
-where
-    S: NewService<ReqBody = Body, ResBody = Bd> + Send + 'static,
-    S::Error: Into<Box<::std::error::Error + Send + Sync>>,
-    S::Service: Send,
-    S::Error: Into<Box<::std::error::Error + Send + Sync>>,
-    <S as ::hyper::service::NewService>::Future: Send,
-    <S::Service as ::hyper::service::Service>::Future: Send + 'static,
-    Bd: Payload,
-{
-    let socket_addr = format!("127.0.0.1:{}", bind_target.port().unwrap())
-        .parse()
-        .unwrap();
-
-    let server = Server::bind(&socket_addr)
-        .serve(s)
-        .map_err(|e| eprintln!("server error: {}", e));
-
-    // hyper::rt::run(server);
-
-    Ok(Box::new(server))
-}
-
 type ResponseFuture = Box<Future<Item = Response<Body>, Error = ServerError> + Send>;
 
 fn current_file_size(path: &str) -> Option<u64> {
@@ -88,59 +43,7 @@ fn current_file_size(path: &str) -> Option<u64> {
     }
 }
 
-fn empty_with_status_code(status_code: StatusCode) -> Response<Body> {
-    // We decided not to download the file, so 404 it!
-    let mut res = Response::new(Body::empty());
-    *res.status_mut() = status_code;
-    res
-}
-
-fn empty_with_status_code_fut(
-    status_code: StatusCode,
-) -> impl Future<Item = Response<Body>, Error = ServerError> {
-    futures::future::ok(empty_with_status_code(status_code))
-}
-
 // using from https://github.com/stephank/hyper-staticfile/blob/master/src/static_service.rs
-
-fn send_file(path: String) -> ResponseFuture {
-    let metadata = match fs::metadata(&path) {
-        Ok(meta) => meta,
-        Err(e) => {
-            return match e.kind() {
-                IoErrorKind::NotFound => panic!(
-                    "Should never reach here, file not found looking for {:?}",
-                    path
-                ),
-                IoErrorKind::PermissionDenied => {
-                    Box::new(empty_with_status_code_fut(StatusCode::FORBIDDEN).map_err(From::from))
-                }
-                _ => Box::new(futures::future::err(e).map_err(From::from)),
-            };
-        }
-    };
-    // Build response headers.
-    let size: String = metadata.len().to_string();
-    let mut res = Response::builder();
-
-    let header_size = match HeaderValue::from_str(&size) {
-        Err(_e) => {
-            return Box::new(
-                future::err("Unable to extract size from file system".to_string())
-                    .map_err(From::from),
-            )
-        }
-        Ok(s) => s,
-    };
-
-    res.header(header::CONTENT_LENGTH, header_size);
-
-    let body = match buffered_send_stream::send_file(&path) {
-        Ok(body) => body,
-        Err(err) => return Box::new(future::err(err)),
-    };
-    Box::new(future::result(res.body(body)).map_err(From::from))
-}
 
 fn duration_to_float_seconds(d: Duration) -> f64 {
     let f: f64 = d.subsec_nanos() as f64 / 1_000_000_000_0.0;
@@ -187,7 +90,7 @@ fn get_request<C: Connect + 'static>(
     }
 
     Box::new(
-        futures::done(proxy_request.build_query_uri(&config.primary_upstream())).and_then(
+        futures::done(proxy_request.build_query_uri(&config.upstream())).and_then(
             move |query_uri| {
                 let downloaded_file_future: Box<
                     Future<Item = Option<u64>, Error = ServerError> + Send,
@@ -304,61 +207,6 @@ fn upstream_upload(
         .unwrap();
 }
 
-struct ProxyRequest {
-    pub repo: String,
-    pub tpe: String, // ac or cas
-    pub digest: String,
-}
-impl ProxyRequest {
-    pub fn file_name(self: &Self) -> String {
-        format!("{}__{}", self.tpe, self.digest).to_string()
-    }
-    pub fn build_query_uri(self: &Self, upstream_uri: &HyperUri) -> Result<HyperUri, ServerError> {
-        let upstream_str = format!("{}", upstream_uri)
-            .trim_right_matches('/')
-            .to_string();
-        format!(
-            "{}/{}/repo={}/{}",
-            upstream_str, self.tpe, self.repo, self.digest
-        ).parse()
-            .map_err(From::from)
-    }
-
-    pub fn new(uri: &HyperUri) -> ProxyRequest {
-        let path: &str = uri.path().trim_matches('/');
-        let elements: Vec<&str> = path.split('/').collect();
-        if path.starts_with("repo=") {
-            let repo_name: &str = {
-                let parts: Vec<&str> = elements[0].split('=').collect();
-                parts[1]
-            };
-            ProxyRequest {
-                repo: repo_name.to_string(),
-                tpe: elements[1].to_string(),
-                digest: elements[2].to_string(),
-            }
-        } else if elements.len() == 2 && (elements[0] == "ac" || elements[0] == "cas") {
-            ProxyRequest {
-                repo: "unknown".to_string(),
-                tpe: elements[0].to_string(),
-                digest: elements[1].to_string(),
-            }
-        } else if path == "/" {
-            ProxyRequest {
-                repo: "unknown".to_string(),
-                tpe: "unknown".to_string(),
-                digest: "index.html".to_string(),
-            }
-        } else {
-            ProxyRequest {
-                repo: "unknown".to_string(),
-                tpe: "unknown".to_string(),
-                digest: path.replace('/', "__"),
-            }
-        }
-    }
-}
-
 fn put_request(
     instant: Instant,
     req: Request<Body>,
@@ -371,8 +219,7 @@ fn put_request(
 
     info!("Put request: {:?}", req.uri().path());
 
-    let upstream_uri = config.primary_upstream();
-    let secondary_upstreams = config.secondary_upstreams();
+    let upstream_uri = config.upstream();
 
     let path = req.uri().path().to_string().clone();
 
@@ -410,16 +257,6 @@ fn put_request(
                             cache_folder.clone(),
                             file_name.clone(),
                         );
-                        for u in secondary_upstreams.iter() {
-                            upstream_upload(
-                                &uploader,
-                                &u,
-                                &proxy_request,
-                                &upload_path,
-                                cache_folder.clone(),
-                                file_name.clone(),
-                            );
-                        }
                         ()
                     }
                     None => (),
@@ -515,6 +352,7 @@ where
                 config.bind_target.authority().unwrap()
             );
 
+            // remove the socket we wish to bind to before binding to it.
             fs::remove_file(config.bind_target.authority().unwrap())?;
             info!(
                 "Going to bind/start server on unix socket for: {}",

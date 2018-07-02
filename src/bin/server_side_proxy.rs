@@ -73,51 +73,42 @@ fn main() {
         )
         .get_matches();
 
-    // let cfg = AppConfig {
-    //     proxy: proxy.map(|e| e.to_string()),
-    //     primary_upstream: matches
-    //         .value_of("primary_upstream")
-    //         .expect("Should never fail, expecting to see primary upstream arg")
-    //         .parse()
-    //         .expect("Failed to parse URI for primary upstream"),
-    //     secondary_upstreams: matches
-    //         .values_of("secondary_upstreams")
-    //         .map(|iter| {
-    //             iter.map(|e| e.parse().expect("Failed to parse secondary URI"))
-    //                 .collect()
-    //         })
-    //         .unwrap_or(vec![]),
-    //     bind_target: matches
-    //         .value_of("bind_target")
-    //         .unwrap_or("http://localhost:10487")
-    //         .parse()
-    //         .unwrap(),
-    //     cache_folder_size: matches
-    //         .value_of("cache_folder_size")
-    //         .unwrap_or("32212254720")
-    //         .parse()
-    //         .unwrap(),
-    //     cache_folder: matches
-    //         .value_of("cache_folder")
-    //         .unwrap_or(&format!(
-    //             "{}/bazel_download_cache",
-    //             env::home_dir().unwrap().display()
-    //         ))
-    //         .to_string(),
-    //     maximum_upload_size: matches
-    //         .value_of("maximum_upload_size")
-    //         .unwrap_or("10485760")
-    //         .parse()
-    //         .unwrap(),
-    //     maximum_download_size: matches
-    //         .value_of("maximum_download_size")
-    //         .unwrap_or("10485760")
-    //         .parse()
-    //         .unwrap(),
-    //     idle_time_terminate: AppConfig::str_to_ms(
-    //         matches.value_of("idle_time_terminate").unwrap_or("600000"), // 10 minute default
-    //     ).unwrap(),
-    // };
+    let cfg = AppConfig {
+        proxy: None,
+        upstream: matches
+            .value_of("primary_upstream")
+            .expect("Should never fail, expecting to see primary upstream arg")
+            .parse()
+            .expect("Failed to parse URI for primary upstream"),
+        bind_target: matches
+            .value_of("bind_target")
+            .unwrap_or("http://localhost:10487")
+            .parse()
+            .unwrap(),
+        cache_folder_size: matches
+            .value_of("cache_folder_size")
+            .unwrap_or("32212254720")
+            .parse()
+            .unwrap(),
+        cache_folder: matches
+            .value_of("cache_folder")
+            .unwrap_or(&format!(
+                "{}/bazel_download_cache",
+                env::home_dir().unwrap().display()
+            ))
+            .to_string(),
+        maximum_upload_size: matches
+            .value_of("maximum_upload_size")
+            .unwrap_or("10485760")
+            .parse()
+            .unwrap(),
+        maximum_download_size: matches
+            .value_of("maximum_download_size")
+            .unwrap_or("10485760")
+            .parse()
+            .unwrap(),
+        idle_time_terminate: None,
+    };
 
     // info!("setting up bazel cache folder in : {:?}", cfg.cache_folder);
     // info!("Cache folder size in : {:?}", cfg.cache_folder_size);
