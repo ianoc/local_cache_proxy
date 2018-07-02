@@ -50,11 +50,11 @@ fn main() {
                 .takes_value(true),
         )
         .arg(
-            Arg::with_name("bind_target")
-                .short("b")
-                .long("bind-target")
-                .value_name("BIND_TARGET")
-                .help("Where we should bind to, either a unix://<path> or http://<ip/host>:<port>")
+            Arg::with_name("port")
+                .long("port")
+                .value_name("BIND_PORT")
+                .help("port number we should bind to")
+                .required(true)
                 .takes_value(true),
         )
         .arg(
@@ -80,10 +80,12 @@ fn main() {
             .expect("Should never fail, expecting to see primary upstream arg")
             .parse()
             .expect("Failed to parse URI for primary upstream"),
-        bind_target: matches
-            .value_of("bind_target")
-            .unwrap_or("http://localhost:10487")
-            .parse()
+        bind_target: format!(
+            "http://0.0.0.0:{}",
+            matches
+                .value_of("port")
+                .expect("Expected port to be specified")
+        ).parse()
             .unwrap(),
         cache_folder_size: matches
             .value_of("cache_folder_size")
