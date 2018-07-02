@@ -27,7 +27,8 @@ mio = "0.6.14"
 mio-uds = "0.6.6"
 hex = "0.2"
 protobuf = "2.0.2"
-
+rusoto_core = "0.32.0"
+rusoto_s3 = "0.32.0"
 
 [lib]
 name = "local_cache_proxy"
@@ -41,3 +42,8 @@ path = "src/bin/main.rs"
 [[bin]]
 name = "dump_actionresult"
 path = "src/bin/dump_actionresult.rs"
+
+
+[[bin]]
+name = "upload_to_s3"
+path = "src/bin/upload_to_s3.rs"
