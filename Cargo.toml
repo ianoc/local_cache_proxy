@@ -33,17 +33,3 @@ rusoto_s3 = "0.32.0"
 [lib]
 name = "local_cache_proxy"
 path = "src/lib.rs"
-
-[[bin]]
-name = "proxy"
-path = "src/bin/main.rs"
-
-
-[[bin]]
-name = "dump_actionresult"
-path = "src/bin/dump_actionresult.rs"
-
-
-[[bin]]
-name = "upload_to_s3"
-path = "src/bin/upload_to_s3.rs"
