@@ -24,8 +24,13 @@ impl ProxyRequest {
 
     pub fn new(uri: &HyperUri) -> ProxyRequest {
         let path: &str = uri.path().trim_matches('/');
-        let elements: Vec<&str> = path.split('/').collect();
-        if path.starts_with("repo=") {
+        let mut elements: Vec<&str> = path.split('/').collect();
+
+        if elements[0].starts_with("bazel-cache") {
+            elements.pop();
+        }
+
+        if elements[0].starts_with("repo=") {
             let repo_name: &str = {
                 let parts: Vec<&str> = elements[0].split('=').collect();
                 parts[1]

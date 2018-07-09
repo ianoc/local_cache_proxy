@@ -8,6 +8,18 @@ use hyper::service::NewService;
 use hyper::Body;
 use hyper::Server;
 
+use std::io;
+use std::net::IpAddr;
+use std::net::ToSocketAddrs;
+
+fn resolve(host: &str) -> io::Result<Vec<IpAddr>> {
+    (host, 0).to_socket_addrs().map(|iter| {
+        iter.map(|socket_address| socket_address.ip())
+            .filter(|e| e.is_ipv4())
+            .collect()
+    })
+}
+
 pub fn start_unix_server_impl<S, Bd>(
     _bind_target: &hyper::Uri,
     _s: S,
@@ -42,7 +54,10 @@ where
     <S::Service as ::hyper::service::Service>::Future: Send + 'static,
     Bd: Payload,
 {
-    let socket_addr = format!("127.0.0.1:{}", bind_target.port().unwrap())
+    let resolved_bind_host =
+        resolve(bind_target.host().unwrap()).expect("Tried to resolve hostname");
+
+    let socket_addr = format!("{}:{}", resolved_bind_host[0], bind_target.port().unwrap())
         .parse()
         .unwrap();
 

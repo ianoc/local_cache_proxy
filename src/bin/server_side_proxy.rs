@@ -19,7 +19,7 @@ extern crate log;
 
 use local_cache_proxy::config::AppConfig;
 use rusoto_core::Region;
-use rusoto_s3::{S3, S3Client};
+use rusoto_s3::S3Client;
 
 // The goal of this proxy is to act as an upstream of the client side proxy
 // over time this will likely move from being http based to something like proto
@@ -89,7 +89,7 @@ fn main() {
             .parse()
             .expect("Failed to parse URI for primary upstream"),
         bind_target: format!(
-            "http://0.0.0.0:{}",
+            "http://127.0.0.1:{}",
             matches
                 .value_of("port")
                 .expect("Expected port to be specified")

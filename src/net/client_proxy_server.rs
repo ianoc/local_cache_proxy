@@ -125,7 +125,7 @@ fn get_request<C: Connect + 'static>(
 
                 let downloaded_fut = downloaded_file_future
                     .and_then(move |file_path| {
-                        // info!("Get request issued to : {} --> {:?}", req.uri(), file_path);
+                        info!("Get request issued to : {} --> {:?}", req.uri(), file_path);
                         match file_path {
                             Some(file_len) => {
                                 if instant.elapsed().as_secs() >= 2 {
@@ -367,8 +367,8 @@ where
         }
         Some("http") => {
             info!(
-                "Going to bind/start server on http path for: 127.0.0.1:{}",
-                config.bind_target.port().unwrap()
+                "Going to bind/start server on http path for: {}",
+                config.bind_target
             );
             start_http_server_impl(&config.bind_target, new_service).map_err(|e| {
                 io::Error::new(

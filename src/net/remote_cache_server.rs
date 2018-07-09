@@ -307,6 +307,7 @@ pub fn start_server(
                 let mut locked = state.lock().unwrap();
                 locked.last_user_facing_request = Instant::now();
             }
+            info!("{:?}", req);
             Box::new(
                 match req.method() {
                     &Method::GET => get_request(

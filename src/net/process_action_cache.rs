@@ -35,7 +35,7 @@ pub fn process_action_cache_response(
 ) -> Result<(), String> {
     if downloaded_file.starts_with("ac__") {
         let data_source_path = Path::new(&config.cache_folder).join(downloaded_file);
-        info!(
+        debug!(
             "Processing for action cache entries: {:?}",
             data_source_path
         );
